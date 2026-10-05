@@ -12,7 +12,7 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 
-# Initialize database on startup
+# Initialize database schema and demo data on startup
 with app.app_context():
     init_db()
 
@@ -32,12 +32,12 @@ def staff_required(view):
         if "user" not in session:
             return jsonify({"error": "Authentication required."}), 401
         if session.get("role") != "staff":
-            return jsonify({"error": "Staff access required. Patient accounts do not have permission."}), 403
+            return jsonify({"error": "Access denied. Only hospital staff and doctors have permission."}), 403
         return view(**kwargs)
     return wrapped_view
 
 
-# Static routes
+# Static file routes for Single Page Application
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
@@ -50,7 +50,7 @@ def static_proxy(path):
     return send_from_directory("static", "index.html")
 
 
-# ================= AUTHENTICATION (NO OTP) =================
+# ================= AUTHENTICATION (DIRECT CREDENTIALS) =================
 
 @app.route("/api/auth/register", methods=["POST"])
 def register():
@@ -82,7 +82,7 @@ def register():
         (username, hashed_pw, role, name or username.capitalize(), mobile),
     )
 
-    # Automatically create patient record if registering as patient
+    # Automatically create/link patient record if registered as a patient
     if role == "patient":
         cursor.execute("SELECT COUNT(*) FROM PATIENTS")
         count = cursor.fetchone()[0] + 1
@@ -96,7 +96,6 @@ def register():
     conn.commit()
     conn.close()
 
-    # Automatically set user session
     session["user"] = username
     session["role"] = role
     session["name"] = name or username.capitalize()
@@ -208,6 +207,12 @@ def get_stats():
     cursor.execute("SELECT COUNT(*) FROM CONSULTATION WHERE STATUS = 'Scheduled'")
     scheduled_consultations = cursor.fetchone()[0]
 
+    cursor.execute("SELECT COUNT(*) FROM BEDS WHERE STATUS = 'Available'")
+    available_beds = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM BEDS WHERE STATUS = 'Occupied'")
+    occupied_beds = cursor.fetchone()[0]
+
     conn.close()
 
     return jsonify({
@@ -216,11 +221,89 @@ def get_stats():
         "available_ambulances": available_ambulances,
         "low_stock_medicines": low_stock_medicines,
         "scheduled_consultations": scheduled_consultations,
+        "available_beds": available_beds,
+        "occupied_beds": occupied_beds,
         "current_user_role": session.get("role")
     })
 
 
-# ================= EMPLOYEES =================
+# ================= HOSPITAL WARD BEDS (THEATRE-STYLE MAP) =================
+
+@app.route("/api/beds", methods=["GET"])
+@login_required
+def get_beds():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT B.BED_ID, B.WARD_TYPE, B.BED_NUMBER, B.STATUS, B.PATIENT_ID, B.ASSIGNED_DATE,
+               P.NAME AS PATIENT_NAME, P.AGE AS PATIENT_AGE, P.GENDER AS PATIENT_GENDER,
+               P.ISSUE AS PATIENT_ISSUE, P.BILL_NO, P.MOBILE_NO
+        FROM BEDS B
+        LEFT JOIN PATIENTS P ON B.PATIENT_ID = P.PID
+        ORDER BY B.WARD_TYPE ASC, B.BED_ID ASC
+    """
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route("/api/beds/assign", methods=["POST"])
+@staff_required
+def assign_bed():
+    data = request.get_json() or {}
+    bed_id = data.get("BED_ID")
+    patient_id = data.get("PATIENT_ID")
+    assigned_date = datetime.now().strftime("%Y-%m-%d")
+
+    if not bed_id or not patient_id:
+        return jsonify({"error": "Both Bed ID and Patient ID are required"}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Verify patient exists
+    cursor.execute("SELECT NAME FROM PATIENTS WHERE PID = ?", (patient_id,))
+    patient = cursor.fetchone()
+    if not patient:
+        conn.close()
+        return jsonify({"error": f"Patient with ID {patient_id} does not exist"}), 404
+
+    # Vacate any existing bed occupied by this patient
+    cursor.execute("UPDATE BEDS SET STATUS = 'Available', PATIENT_ID = NULL, ASSIGNED_DATE = NULL WHERE PATIENT_ID = ?", (patient_id,))
+
+    # Assign new bed
+    cursor.execute(
+        "UPDATE BEDS SET STATUS = 'Occupied', PATIENT_ID = ?, ASSIGNED_DATE = ? WHERE BED_ID = ?",
+        (patient_id, assigned_date, bed_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Bed {bed_id} successfully allocated to {patient['NAME']}"})
+
+
+@app.route("/api/beds/vacate", methods=["POST"])
+@staff_required
+def vacate_bed():
+    data = request.get_json() or {}
+    bed_id = data.get("BED_ID")
+
+    if not bed_id:
+        return jsonify({"error": "Bed ID is required"}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE BEDS SET STATUS = 'Available', PATIENT_ID = NULL, ASSIGNED_DATE = NULL WHERE BED_ID = ?",
+        (bed_id,),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Bed {bed_id} discharged and marked Available"})
+
+
+# ================= EMPLOYEES (DOCTORS & STAFF) =================
 
 @app.route("/api/employees", methods=["GET"])
 @login_required
@@ -258,10 +341,10 @@ def add_employee():
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({"error": f"Employee ID {eid} already exists"}), 409
+        return jsonify({"error": f"Doctor/Employee ID {eid} already exists"}), 409
 
     conn.close()
-    return jsonify({"message": f"Employee {name} added successfully", "EID": eid}), 201
+    return jsonify({"message": f"Doctor {name} added successfully", "EID": eid}), 201
 
 
 @app.route("/api/employees/<eid>", methods=["DELETE"])
@@ -272,12 +355,12 @@ def delete_employee(eid):
     cursor.execute("SELECT COUNT(*) FROM CONSULTATION WHERE EMP_ID = ?", (eid,))
     if cursor.fetchone()[0] > 0:
         conn.close()
-        return jsonify({"error": "Cannot delete doctor/employee with existing consultations"}), 400
+        return jsonify({"error": "Cannot delete doctor with existing consultation history"}), 400
 
     cursor.execute("DELETE FROM EMPLOYEES WHERE EID = ?", (eid,))
     conn.commit()
     conn.close()
-    return jsonify({"message": f"Employee {eid} removed successfully"})
+    return jsonify({"message": f"Doctor/Staff {eid} removed successfully"})
 
 
 # ================= PATIENTS =================
@@ -287,12 +370,15 @@ def delete_employee(eid):
 def get_patients():
     conn = get_db()
     cursor = conn.cursor()
-    
+
     if session.get("role") == "patient":
-        cursor.execute("SELECT * FROM PATIENTS WHERE USERNAME = ? OR MOBILE_NO = (SELECT MOBILE_NO FROM USER_DATA WHERE USERNAME = ?)", (session["user"], session["user"]))
+        cursor.execute(
+            "SELECT * FROM PATIENTS WHERE USERNAME = ? OR MOBILE_NO = (SELECT MOBILE_NO FROM USER_DATA WHERE USERNAME = ?)",
+            (session["user"], session["user"]),
+        )
     else:
         cursor.execute("SELECT * FROM PATIENTS ORDER BY PID ASC")
-        
+
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return jsonify(rows)
@@ -343,15 +429,16 @@ def delete_patient(pid):
     cursor.execute("SELECT COUNT(*) FROM CONSULTATION WHERE PATIENT_ID = ?", (pid,))
     if cursor.fetchone()[0] > 0:
         conn.close()
-        return jsonify({"error": "Cannot delete patient who has consultation history."}), 400
+        return jsonify({"error": "Cannot delete patient who has active consultation history."}), 400
 
     cursor.execute("DELETE FROM PATIENTS WHERE PID = ?", (pid,))
     conn.commit()
     conn.close()
-    return jsonify({"message": f"Patient {pid} deleted"})
+    return jsonify({"message": f"Patient {pid} deleted successfully"})
 
 
-# ================= EMT / AMBULANCE =================
+# ================= EMERGENCY MEDICAL TRANSPORT (AMBULANCE) =================
+# Patients can only view available ambulances; modifications are restricted to staff
 
 @app.route("/api/emt", methods=["GET"])
 @login_required
@@ -392,7 +479,7 @@ def add_emt():
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({"error": f"Ambulance {vno} already registered"}), 409
+        return jsonify({"error": f"Ambulance {vno} is already registered"}), 409
 
     conn.close()
     return jsonify({"message": f"Ambulance {vno} added successfully"}), 201
@@ -404,7 +491,7 @@ def update_emt_status(vno):
     data = request.get_json() or {}
     status = data.get("STATUS")
     if status not in ["Available", "Dispatched", "Maintenance"]:
-        return jsonify({"error": "Invalid status"}), 400
+        return jsonify({"error": "Invalid ambulance status"}), 400
 
     conn = get_db()
     cursor = conn.cursor()
@@ -482,7 +569,8 @@ def get_consultations():
     cursor = conn.cursor()
 
     query = """
-        SELECT C.*, P.NAME AS PATIENT_NAME, E.NAME AS DOCTOR_NAME, E.DEPARTMENT
+        SELECT C.*, P.NAME AS PATIENT_NAME, P.AGE AS PATIENT_AGE, P.GENDER AS PATIENT_GENDER,
+               E.NAME AS DOCTOR_NAME, E.DEPARTMENT
         FROM CONSULTATION C
         JOIN PATIENTS P ON C.PATIENT_ID = P.PID
         JOIN EMPLOYEES E ON C.EMP_ID = E.EID
@@ -500,6 +588,29 @@ def get_consultations():
     return jsonify(rows)
 
 
+@app.route("/api/consultations/<cid>", methods=["GET"])
+@login_required
+def get_single_consultation(cid):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT C.*, P.NAME AS PATIENT_NAME, P.AGE AS PATIENT_AGE, P.GENDER AS PATIENT_GENDER,
+               P.MOBILE_NO AS PATIENT_MOBILE, E.NAME AS DOCTOR_NAME, E.DEPARTMENT
+        FROM CONSULTATION C
+        JOIN PATIENTS P ON C.PATIENT_ID = P.PID
+        JOIN EMPLOYEES E ON C.EMP_ID = E.EID
+        WHERE C.CONSULTATION_ID = ?
+    """,
+        (cid,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"error": "Consultation not found"}), 404
+    return jsonify(dict(row))
+
+
 @app.route("/api/consultations", methods=["POST"])
 @login_required
 def book_consultation():
@@ -507,19 +618,20 @@ def book_consultation():
     patient_id = data.get("PATIENT_ID")
     emp_id = data.get("EMP_ID")
     reason = data.get("REASON", "General Checkup")
-    fees = data.get("FEES", 500.0)
+    fees = data.get("FEES", 600.0)
     time = data.get("TIME") or datetime.now().strftime("%Y-%m-%d %H:%M")
 
     conn = get_db()
     cursor = conn.cursor()
 
+    # For patient account, enforce linkage to their own patient profile
     if session.get("role") == "patient":
         cursor.execute("SELECT PID FROM PATIENTS WHERE USERNAME = ?", (session["user"],))
         p_row = cursor.fetchone()
         if p_row:
             patient_id = p_row["PID"]
         else:
-            return jsonify({"error": "No patient profile associated with this account. Please add your profile first."}), 400
+            return jsonify({"error": "No patient profile associated with this account."}), 400
 
     if not patient_id or not emp_id:
         conn.close()
@@ -538,7 +650,7 @@ def book_consultation():
     return jsonify({"message": "Consultation scheduled successfully", "CONSULTATION_ID": cid}), 201
 
 
-# ================= PRESCRIPTIONS =================
+# ================= DIGITAL PRESCRIPTIONS & DOWNLOAD =================
 
 @app.route("/api/prescriptions", methods=["GET"])
 @login_required
@@ -548,7 +660,8 @@ def get_prescriptions():
 
     query = """
         SELECT PR.PRESCRIPTION_ID, PR.CONSULTATION_ID, PR.DATE, PR.DIAGNOSIS, PR.INSTRUCTIONS,
-               P.NAME AS PATIENT_NAME, P.PID AS PATIENT_ID, E.NAME AS DOCTOR_NAME
+               P.NAME AS PATIENT_NAME, P.PID AS PATIENT_ID, P.AGE AS PATIENT_AGE, P.GENDER AS PATIENT_GENDER,
+               P.MOBILE_NO AS PATIENT_MOBILE, E.NAME AS DOCTOR_NAME, E.DEPARTMENT
         FROM PRESCRIPTION PR
         JOIN CONSULTATION C ON PR.CONSULTATION_ID = C.CONSULTATION_ID
         JOIN PATIENTS P ON C.PATIENT_ID = P.PID
@@ -571,18 +684,51 @@ def get_prescriptions():
     return jsonify(prescriptions)
 
 
+@app.route("/api/prescriptions/<rx_id>", methods=["GET"])
+@login_required
+def get_prescription_details(rx_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT PR.PRESCRIPTION_ID, PR.CONSULTATION_ID, PR.DATE, PR.DIAGNOSIS, PR.INSTRUCTIONS,
+               P.NAME AS PATIENT_NAME, P.PID AS PATIENT_ID, P.AGE AS PATIENT_AGE, P.GENDER AS PATIENT_GENDER,
+               P.MOBILE_NO AS PATIENT_MOBILE, P.BILL_NO, E.NAME AS DOCTOR_NAME, E.DEPARTMENT, E.EID AS DOCTOR_ID
+        FROM PRESCRIPTION PR
+        JOIN CONSULTATION C ON PR.CONSULTATION_ID = C.CONSULTATION_ID
+        JOIN PATIENTS P ON C.PATIENT_ID = P.PID
+        JOIN EMPLOYEES E ON C.EMP_ID = E.EID
+        WHERE PR.PRESCRIPTION_ID = ?
+    """,
+        (rx_id,),
+    )
+    pres = cursor.fetchone()
+    if not pres:
+        conn.close()
+        return jsonify({"error": "Prescription not found"}), 404
+
+    pres_dict = dict(pres)
+    cursor.execute("SELECT * FROM PRESCRIBED_MEDICINE WHERE PRESCRIPTION_ID = ?", (rx_id,))
+    pres_dict["medicines"] = [dict(m) for m in cursor.fetchall()]
+
+    conn.close()
+    return jsonify(pres_dict)
+
+
 @app.route("/api/prescriptions", methods=["POST"])
 @staff_required
 def create_prescription():
     data = request.get_json() or {}
     consultation_id = data.get("CONSULTATION_ID")
-    diagnosis = data.get("DIAGNOSIS", "")
-    instructions = data.get("INSTRUCTIONS", "")
+    diagnosis = data.get("DIAGNOSIS", "").strip()
+    instructions = data.get("INSTRUCTIONS", "").strip()
     medicines = data.get("MEDICINES", [])
     date_str = datetime.now().strftime("%Y-%m-%d")
 
     if not consultation_id:
         return jsonify({"error": "Consultation ID is required"}), 400
+    if not diagnosis:
+        return jsonify({"error": "Clinical diagnosis is required"}), 400
 
     conn = get_db()
     cursor = conn.cursor()
@@ -599,9 +745,11 @@ def create_prescription():
 
         for med in medicines:
             med_name = med.get("name")
+            if not med_name:
+                continue
             dosage = med.get("dosage", "1 Tablet")
             freq = med.get("frequency", "Twice daily")
-            dur = med.get("duration", "5 days")
+            dur = med.get("duration", "5 Days")
 
             cursor.execute(
                 "INSERT INTO PRESCRIBED_MEDICINE (PRESCRIPTION_ID, MEDICINE_NAME, DOSAGE, FREQUENCY, DURATION) VALUES (?, ?, ?, ?, ?)",
@@ -616,23 +764,34 @@ def create_prescription():
         return jsonify({"error": f"Could not create prescription: {str(e)}"}), 400
 
     conn.close()
-    return jsonify({"message": "Digital Prescription generated successfully", "PRESCRIPTION_ID": pres_id}), 201
+    return jsonify({"message": "Digital Prescription created successfully", "PRESCRIPTION_ID": pres_id}), 201
 
 
-# ================= DATABASE RESET =================
+# ================= DATABASE RESET (ADMIN) =================
 
 @app.route("/api/admin/reset", methods=["POST"])
 @staff_required
 def reset_database():
     conn = get_db()
     cursor = conn.cursor()
-    tables = ["PRESCRIBED_MEDICINE", "PRESCRIPTION", "CONSULTATION", "EMT_STATUS", "EMT", "PHARMACY", "PATIENTS", "EMPLOYEES", "USER_DATA"]
+    tables = [
+        "PRESCRIBED_MEDICINE",
+        "PRESCRIPTION",
+        "CONSULTATION",
+        "BEDS",
+        "EMT_STATUS",
+        "EMT",
+        "PHARMACY",
+        "PATIENTS",
+        "EMPLOYEES",
+        "USER_DATA",
+    ]
     for t in tables:
         cursor.execute(f"DROP TABLE IF EXISTS {t}")
     conn.commit()
     conn.close()
     init_db()
-    return jsonify({"message": "Database reset and seeded with default vibrant data!"})
+    return jsonify({"message": "Database reset and seeded with fresh demo doctors, patients, and ward beds!"})
 
 
 if __name__ == "__main__":
