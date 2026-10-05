@@ -20,7 +20,7 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
 
-    # 1. Employees (Doctors / Clinical Staff)
+    # 1. Employees (10 Doctors & Clinical Specialists)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS EMPLOYEES (
@@ -35,7 +35,7 @@ def init_db():
     """
     )
 
-    # 2. Patients
+    # 2. Patients (20 Patient Records)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS PATIENTS (
@@ -52,7 +52,22 @@ def init_db():
     """
     )
 
-    # 3. Emergency Medical Fleet (EMT)
+    # 3. Hospital Ward Beds Layout (Theatre-style visual grid)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS BEDS (
+            BED_ID TEXT PRIMARY KEY,
+            WARD_TYPE TEXT NOT NULL,
+            BED_NUMBER TEXT NOT NULL,
+            STATUS TEXT DEFAULT 'Available' CHECK (STATUS IN ('Available', 'Occupied', 'Maintenance')),
+            PATIENT_ID TEXT,
+            ASSIGNED_DATE TEXT,
+            FOREIGN KEY (PATIENT_ID) REFERENCES PATIENTS(PID) ON DELETE SET NULL
+        )
+    """
+    )
+
+    # 4. Emergency Medical Transport (Ambulance Fleet)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS EMT (
@@ -74,7 +89,7 @@ def init_db():
     """
     )
 
-    # 4. Pharmacy Inventory
+    # 5. Pharmacy Inventory
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS PHARMACY (
@@ -86,7 +101,7 @@ def init_db():
     """
     )
 
-    # 5. User Authentication & Roles (Staff vs. Patient)
+    # 6. User Authentication & Role Access
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS USER_DATA (
@@ -100,7 +115,7 @@ def init_db():
     """
     )
 
-    # 6. Consultations & Appointments
+    # 7. Consultations
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS CONSULTATION (
@@ -117,7 +132,7 @@ def init_db():
     """
     )
 
-    # 7. Digital Prescriptions
+    # 8. Digital Prescriptions
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS PRESCRIPTION (
@@ -164,7 +179,7 @@ def seed_data(conn):
                     "admin",
                     generate_password_hash("admin123"),
                     "staff",
-                    "Dr. Eleanor Vance (Chief Admin)",
+                    "Dr. Eleanor Vance (Chief Medical Officer)",
                     "9876543210",
                 ),
                 (
@@ -184,42 +199,104 @@ def seed_data(conn):
             ],
         )
 
-    # Seed Doctors & Medical Staff
+    # 1. Seed 10 Doctors
     cursor.execute("SELECT COUNT(*) FROM EMPLOYEES")
     if cursor.fetchone()[0] == 0:
         cursor.executemany(
             "INSERT INTO EMPLOYEES (EID, NAME, DEPARTMENT, AGE, GENDER, SALARY, MOBILE_NO) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
-                ("EMP001", "Dr. Rajesh Sharma", "Cardiology", 45, "Male", 185000, "9876543211"),
-                ("EMP002", "Dr. Priya Patel", "Pediatrics", 38, "Female", 160000, "9876543212"),
-                ("EMP003", "Dr. Michael Chen", "Orthopedics", 50, "Male", 195000, "9876543213"),
-                ("EMP004", "Dr. Anita Desai", "Neurology", 42, "Female", 175000, "9876543214"),
-                ("EMP005", "Nurse Sarah Wilson", "Emergency Care", 29, "Female", 72000, "9876543215"),
+                ("EMP001", "Dr. Rajesh Sharma", "Cardiology", 46, "Male", 195000, "9876543211"),
+                ("EMP002", "Dr. Priya Patel", "Pediatrics", 38, "Female", 165000, "9876543212"),
+                ("EMP003", "Dr. Michael Chen", "Orthopedics", 50, "Male", 210000, "9876543213"),
+                ("EMP004", "Dr. Anita Desai", "Neurology", 43, "Female", 185000, "9876543214"),
+                ("EMP005", "Dr. Vikram Sethi", "Oncology", 54, "Male", 230000, "9876543215"),
+                ("EMP006", "Dr. Meera Nambiar", "Dermatology", 36, "Female", 150000, "9876543216"),
+                ("EMP007", "Dr. Arjun Kapoor", "General Surgery", 49, "Male", 220000, "9876543217"),
+                ("EMP008", "Dr. Sunita Rao", "ENT Specialist", 41, "Female", 155000, "9876543218"),
+                ("EMP009", "Dr. David Miller", "Radiology", 45, "Male", 175000, "9876543219"),
+                ("EMP010", "Dr. Kavita Nair", "Emergency Medicine", 39, "Female", 180000, "9876543220"),
             ],
         )
 
-    # Seed Patient Records
+    # 2. Seed 20 Patients
     cursor.execute("SELECT COUNT(*) FROM PATIENTS")
     if cursor.fetchone()[0] == 0:
         cursor.executemany(
             "INSERT INTO PATIENTS (PID, NAME, ISSUE, AGE, GENDER, FEES, MOBILE_NO, BILL_NO, USERNAME) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                ("PAT001", "Johnathan Doe", "Chest pain & Mild Hypertension", 52, "Male", 1200, "9123456780", "BILL-1001", "patient_john"),
-                ("PAT002", "Emily Watson", "Severe Migraine", 34, "Female", 800, "9123456781", "BILL-1002", None),
-                ("PAT003", "Aarav Kumar", "Viral Fever and Throat Infection", 8, "Male", 500, "9123456782", "BILL-1003", None),
-                ("PAT004", "Robert Taylor", "Knee Joint Pain", 63, "Male", 1500, "9123456783", "BILL-1004", None),
+                ("PAT001", "Johnathan Doe", "Chest tightness & Hypertension", 52, "Male", 1500, "9123456780", "BILL-1001", "patient_john"),
+                ("PAT002", "Emily Watson", "Severe Migraine & Nausea", 34, "Female", 900, "9123456781", "BILL-1002", None),
+                ("PAT003", "Aarav Kumar", "Viral Fever and Bronchitis", 9, "Male", 600, "9123456782", "BILL-1003", None),
+                ("PAT004", "Robert Taylor", "Right Knee Ligament Tear", 63, "Male", 1800, "9123456783", "BILL-1004", None),
+                ("PAT005", "Sophia Martinez", "Stage II Lymphoma Review", 47, "Female", 2500, "9123456784", "BILL-1005", None),
+                ("PAT006", "Ananya Iyer", "Chronic Eczema Flare-up", 28, "Female", 750, "9123456785", "BILL-1006", None),
+                ("PAT007", "Karan Malhotra", "Acute Appendicitis Post-op", 31, "Male", 3200, "9123456786", "BILL-1007", None),
+                ("PAT008", "Fatima Sheikh", "Chronic Sinusitis & Vertigo", 42, "Female", 800, "9123456787", "BILL-1008", None),
+                ("PAT009", "George Thomas", "Lumbar Spine MRI Follow-up", 58, "Male", 1200, "9123456788", "BILL-1009", None),
+                ("PAT010", "Neha Reddy", "Dehydration & Food Poisoning", 24, "Female", 1100, "9123456789", "BILL-1010", None),
+                ("PAT011", "Vikramaditya Bose", "Coronary Angioplasty Recovery", 65, "Male", 4500, "9123456790", "BILL-1011", None),
+                ("PAT012", "Chloe Bennett", "Pediatric Asthma Exacerbation", 6, "Female", 700, "9123456791", "BILL-1012", None),
+                ("PAT013", "Siddharth Joshi", "Shoulder Dislocation & Sprain", 37, "Male", 1400, "9123456792", "BILL-1013", None),
+                ("PAT014", "Zoya Akhtar", "Epileptic Seizure Assessment", 29, "Female", 2100, "9123456793", "BILL-1014", None),
+                ("PAT015", "Harpreet Singh", "Chemotherapy Cycle 3 Check", 53, "Male", 3800, "9123456794", "BILL-1015", None),
+                ("PAT016", "Divya Pillai", "Psoriasis Plaque Management", 33, "Female", 850, "9123456795", "BILL-1016", None),
+                ("PAT017", "Manish Verma", "Inguinal Hernia Repair Post-op", 49, "Male", 2900, "9123456796", "BILL-1017", None),
+                ("PAT018", "Tanya Grewal", "Tonsillitis & Vocal Strain", 22, "Female", 650, "9123456797", "BILL-1018", None),
+                ("PAT019", "Lucas Silva", "Cerebral CT Scan Consultation", 41, "Male", 1350, "9123456798", "BILL-1019", None),
+                ("PAT020", "Pooja Hegde", "Multiple Trauma & Fracture", 27, "Female", 5200, "9123456799", "BILL-1020", None),
             ],
         )
 
-    # Seed Ambulance Fleet
+    # 3. Seed Hospital Ward Beds Layout (ICU, General Ward, Emergency, Deluxe)
+    cursor.execute("SELECT COUNT(*) FROM BEDS")
+    if cursor.fetchone()[0] == 0:
+        cursor.executemany(
+            "INSERT INTO BEDS (BED_ID, WARD_TYPE, BED_NUMBER, STATUS, PATIENT_ID, ASSIGNED_DATE) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                # Intensive Care Unit (ICU)
+                ("ICU-01", "ICU Ward", "Bed 01", "Occupied", "PAT001", "2026-09-24"),
+                ("ICU-02", "ICU Ward", "Bed 02", "Occupied", "PAT011", "2026-09-25"),
+                ("ICU-03", "ICU Ward", "Bed 03", "Available", None, None),
+                ("ICU-04", "ICU Ward", "Bed 04", "Occupied", "PAT020", "2026-09-26"),
+                ("ICU-05", "ICU Ward", "Bed 05", "Available", None, None),
+                ("ICU-06", "ICU Ward", "Bed 06", "Maintenance", None, None),
+
+                # Emergency Care (EMG)
+                ("EMG-01", "Emergency Care", "Bed 01", "Occupied", "PAT010", "2026-09-26"),
+                ("EMG-02", "Emergency Care", "Bed 02", "Available", None, None),
+                ("EMG-03", "Emergency Care", "Bed 03", "Occupied", "PAT007", "2026-09-25"),
+                ("EMG-04", "Emergency Care", "Bed 04", "Available", None, None),
+
+                # General Medical Ward (GEN)
+                ("GEN-01", "General Ward", "Bed 01", "Occupied", "PAT003", "2026-09-25"),
+                ("GEN-02", "General Ward", "Bed 02", "Available", None, None),
+                ("GEN-03", "General Ward", "Bed 03", "Occupied", "PAT012", "2026-09-26"),
+                ("GEN-04", "General Ward", "Bed 04", "Available", None, None),
+                ("GEN-05", "General Ward", "Bed 05", "Occupied", "PAT017", "2026-09-24"),
+                ("GEN-06", "General Ward", "Bed 06", "Available", None, None),
+                ("GEN-07", "General Ward", "Bed 07", "Available", None, None),
+                ("GEN-08", "General Ward", "Bed 08", "Available", None, None),
+                ("GEN-09", "General Ward", "Bed 09", "Available", None, None),
+                ("GEN-10", "General Ward", "Bed 10", "Maintenance", None, None),
+
+                # Deluxe Private Suites (DLX)
+                ("DLX-01", "Deluxe Suite", "Suite 101", "Occupied", "PAT004", "2026-09-23"),
+                ("DLX-02", "Deluxe Suite", "Suite 102", "Occupied", "PAT015", "2026-09-25"),
+                ("DLX-03", "Deluxe Suite", "Suite 103", "Available", None, None),
+                ("DLX-04", "Deluxe Suite", "Suite 104", "Available", None, None),
+            ],
+        )
+
+    # 4. Seed Ambulance Fleet
     cursor.execute("SELECT COUNT(*) FROM EMT")
     if cursor.fetchone()[0] == 0:
         cursor.executemany(
             "INSERT INTO EMT (VNO, VTYPE, DRIVER_NAME, MOBILE_NO) VALUES (?, ?, ?, ?)",
             [
-                ("KA01AB1234", "Advanced Life Support (ALS)", "Ramesh Gowda", "9988776655"),
-                ("KA01CD5678", "Basic Life Support (BLS)", "Suresh Kumar", "9988776656"),
-                ("KA02EF9012", "Patient Transport Unit", "Anil Patil", "9988776657"),
+                ("KA01AB1234", "Advanced Cardiac Life Support (ALS)", "Ramesh Gowda", "9988776655"),
+                ("KA01CD5678", "Basic Trauma Life Support (BLS)", "Suresh Kumar", "9988776656"),
+                ("KA02EF9012", "Patient Transport Care Unit", "Anil Patil", "9988776657"),
+                ("KA02GH3456", "Neonatal Intensive Care Ambulance", "Vikram Das", "9988776658"),
             ],
         )
         cursor.executemany(
@@ -228,10 +305,11 @@ def seed_data(conn):
                 ("KA01AB1234", "Available"),
                 ("KA01CD5678", "Dispatched"),
                 ("KA02EF9012", "Available"),
+                ("KA02GH3456", "Available"),
             ],
         )
 
-    # Seed Pharmacy Catalog
+    # 5. Seed Pharmacy Catalog
     cursor.execute("SELECT COUNT(*) FROM PHARMACY")
     if cursor.fetchone()[0] == 0:
         cursor.executemany(
@@ -243,28 +321,52 @@ def seed_data(conn):
                 ("Cetirizine 10mg", "Tablet", 400, 45.0),
                 ("Salbutamol Inhaler", "Inhaler", 60, 250.0),
                 ("Azithromycin 500mg", "Tablet", 140, 160.0),
+                ("Pantoprazole 40mg", "Tablet", 320, 85.0),
+                ("Metformin 500mg", "Tablet", 450, 60.0),
+                ("Diclofenac Gel 30g", "Ointment", 90, 110.0),
+                ("Ondansetron 4mg", "Injection", 110, 95.0),
             ],
         )
 
-    # Seed Consultations & Prescriptions
+    # 6. Seed Consultations & Prescriptions
     cursor.execute("SELECT COUNT(*) FROM CONSULTATION")
     if cursor.fetchone()[0] == 0:
         cursor.executemany(
             "INSERT INTO CONSULTATION (CONSULTATION_ID, PATIENT_ID, EMP_ID, REASON, FEES, TIME, STATUS) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
-                ("CON-001", "PAT001", "EMP001", "Cardiac check-up and ECG", 1200, "2026-09-25 10:30", "Completed"),
-                ("CON-002", "PAT002", "EMP004", "Neurology consultation", 800, "2026-09-26 14:00", "Scheduled"),
+                ("CON-001", "PAT001", "EMP001", "Cardiac ECG & Blood Pressure Check", 1500, "2026-09-25 10:30", "Completed"),
+                ("CON-002", "PAT002", "EMP004", "Neurology consultation for chronic migraine", 900, "2026-09-26 11:15", "Completed"),
+                ("CON-003", "PAT003", "EMP002", "Pediatric chest auscultation and fever check", 600, "2026-09-26 14:00", "Scheduled"),
+                ("CON-004", "PAT004", "EMP003", "Orthopedic knee ligament MRI assessment", 1800, "2026-09-26 15:30", "Scheduled"),
+                ("CON-005", "PAT007", "EMP007", "Post-appendectomy wound review", 1200, "2026-09-26 16:45", "Scheduled"),
             ],
         )
-        cursor.execute(
+        cursor.executemany(
             "INSERT INTO PRESCRIPTION (PRESCRIPTION_ID, CONSULTATION_ID, DATE, DIAGNOSIS, INSTRUCTIONS) VALUES (?, ?, ?, ?, ?)",
-            ("RX-001", "CON-001", "2026-09-25", "Mild Cardiac Arrhythmia & Hypertension", "Low sodium diet, brisk walking 30 min daily"),
+            [
+                (
+                    "RX-001",
+                    "CON-001",
+                    "2026-09-25",
+                    "Stage 1 Essential Hypertension & Arrhythmia",
+                    "Low sodium Mediterranean diet, 30 min daily brisk walk, monitor BP weekly.",
+                ),
+                (
+                    "RX-002",
+                    "CON-002",
+                    "2026-09-26",
+                    "Chronic Migraine with Visual Aura",
+                    "Avoid prolonged screen strain, stay well hydrated, maintain regular sleep hours.",
+                ),
+            ],
         )
         cursor.executemany(
             "INSERT INTO PRESCRIBED_MEDICINE (PRESCRIPTION_ID, MEDICINE_NAME, DOSAGE, FREQUENCY, DURATION) VALUES (?, ?, ?, ?, ?)",
             [
                 ("RX-001", "Atorvastatin 10mg", "1 Tablet", "Once daily after dinner", "30 Days"),
-                ("RX-001", "Cetirizine 10mg", "1 Tablet", "If needed for allergies", "5 Days"),
+                ("RX-001", "Pantoprazole 40mg", "1 Tablet", "Once daily before breakfast", "15 Days"),
+                ("RX-002", "Cetirizine 10mg", "1 Tablet", "Once daily at bedtime", "7 Days"),
+                ("RX-002", "Paracetamol 650mg", "1 Tablet", "As needed for acute head pain", "5 Days"),
             ],
         )
 
@@ -273,4 +375,4 @@ def seed_data(conn):
 
 if __name__ == "__main__":
     init_db()
-    print("Database initialized and seeded successfully.")
+    print("Database initialized and seeded with 10 Doctors, 20 Patients, and Ward Bed layout successfully.")
