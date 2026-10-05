@@ -1,34 +1,40 @@
-// Current Application State
-let currentUser = null;
-let currentView = 'dashboard';
+/* ==========================================================================
+   PulseCare+ Hospital Management System - Core Client Application Logic
+   ========================================================================== */
 
-// On Page Load
+let activeUser = null;
+let activeView = 'dashboard';
+let hospitalBedsCache = [];
+
+// Initialize application on DOM ready
 document.addEventListener('DOMContentLoaded', async () => {
-  await checkAuthStatus();
-  if (currentUser) {
-    setupViewForRole();
-    loadDashboardData();
+  await verifySessionState();
+  if (activeUser) {
+    applyRolePermissions();
+    refreshDashboard();
   }
 });
 
-// ================= AUTHENTICATION LOGIC (NO OTP) =================
+/* --------------------------------------------------------------------------
+   1. Authentication & Session Management
+   -------------------------------------------------------------------------- */
 
-function switchAuthTab(tab) {
-  const loginForm = document.getElementById('login-form');
-  const signupForm = document.getElementById('signup-form');
-  const tabLogin = document.getElementById('tab-login');
-  const tabSignup = document.getElementById('tab-signup');
+function switchAuthTab(selectedTab) {
+  const formLogin = document.getElementById('login-form');
+  const formSignup = document.getElementById('signup-form');
+  const tabLoginBtn = document.getElementById('tab-login');
+  const tabSignupBtn = document.getElementById('tab-signup');
 
-  if (tab === 'login') {
-    loginForm.classList.remove('hidden');
-    signupForm.classList.add('hidden');
-    tabLogin.classList.add('active');
-    tabSignup.classList.remove('active');
+  if (selectedTab === 'login') {
+    formLogin.classList.remove('hidden');
+    formSignup.classList.add('hidden');
+    tabLoginBtn.classList.add('active');
+    tabSignupBtn.classList.remove('active');
   } else {
-    loginForm.classList.add('hidden');
-    signupForm.classList.remove('hidden');
-    tabLogin.classList.remove('active');
-    tabSignup.classList.add('active');
+    formLogin.classList.add('hidden');
+    formSignup.classList.remove('hidden');
+    tabLoginBtn.classList.remove('active');
+    tabSignupBtn.classList.add('active');
   }
 }
 
@@ -37,333 +43,780 @@ function fillDemo(username, password) {
   document.getElementById('login-password').value = password;
 }
 
-function updateRoleBadge(role) {
+function updateRoleBadge() {
   // Handled dynamically on form submission
 }
 
-async function handleLogin(e) {
-  e.preventDefault();
-  const username = document.getElementById('login-username').value.trim();
-  const password = document.getElementById('login-password').value.trim();
+async function handleLogin(event) {
+  event.preventDefault();
+  const usernameInput = document.getElementById('login-username').value.trim();
+  const passwordInput = document.getElementById('login-password').value.trim();
 
   try {
-    const res = await fetch('/api/auth/login', {
+    const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username: usernameInput, password: passwordInput })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Login failed');
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Authentication failed');
 
-    currentUser = data.user;
-    showToast(`Welcome back, ${currentUser.name}!`, 'success');
-    showAppScreen();
+    activeUser = payload.user;
+    notifyUser(`Welcome back, ${activeUser.name}!`, 'success');
+    renderAuthenticatedPortal();
   } catch (err) {
-    showToast(err.message, 'error');
+    notifyUser(err.message, 'error');
   }
 }
 
-async function handleSignup(e) {
-  e.preventDefault();
-  const name = document.getElementById('signup-name').value.trim();
-  const mobile_no = document.getElementById('signup-mobile').value.trim();
-  const username = document.getElementById('signup-username').value.trim();
-  const password = document.getElementById('signup-password').value.trim();
-  const role = document.querySelector('input[name="signup-role"]:checked').value;
+async function handleSignup(event) {
+  event.preventDefault();
+  const nameVal = document.getElementById('signup-name').value.trim();
+  const mobileVal = document.getElementById('signup-mobile').value.trim();
+  const usernameVal = document.getElementById('signup-username').value.trim();
+  const passwordVal = document.getElementById('signup-password').value.trim();
+  const roleVal = document.querySelector('input[name="signup-role"]:checked').value;
 
   try {
-    const res = await fetch('/api/auth/register', {
+    const response = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, mobile_no, username, password, role })
+      body: JSON.stringify({
+        name: nameVal,
+        mobile_no: mobileVal,
+        username: usernameVal,
+        password: passwordVal,
+        role: roleVal
+      })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Registration failed');
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Registration failed');
 
-    currentUser = data.user;
-    showToast(`Account created as ${role.toUpperCase()}!`, 'success');
-    showAppScreen();
+    activeUser = payload.user;
+    notifyUser(`Account registered as ${roleVal.toUpperCase()}!`, 'success');
+    renderAuthenticatedPortal();
   } catch (err) {
-    showToast(err.message, 'error');
+    notifyUser(err.message, 'error');
   }
 }
 
-async function checkAuthStatus() {
+async function verifySessionState() {
   try {
-    const res = await fetch('/api/auth/me');
-    const data = await res.json();
+    const response = await fetch('/api/auth/me');
+    const data = await response.json();
     if (data.authenticated) {
-      currentUser = data.user;
-      showAppScreen();
+      activeUser = data.user;
+      renderAuthenticatedPortal();
     } else {
-      showAuthScreen();
+      renderUnauthenticatedView();
     }
   } catch (err) {
-    showAuthScreen();
+    renderUnauthenticatedView();
   }
 }
 
 async function handleLogout() {
   await fetch('/api/auth/logout', { method: 'POST' });
-  currentUser = null;
-  showToast('Logged out successfully', 'info');
-  showAuthScreen();
+  activeUser = null;
+  notifyUser('You have been logged out.', 'info');
+  renderUnauthenticatedView();
 }
 
-function showAuthScreen() {
+function renderUnauthenticatedView() {
   document.getElementById('auth-screen').classList.remove('hidden');
   document.getElementById('app-screen').classList.add('hidden');
 }
 
-function showAppScreen() {
+function renderAuthenticatedPortal() {
   document.getElementById('auth-screen').classList.add('hidden');
   document.getElementById('app-screen').classList.remove('hidden');
 
-  document.getElementById('display-user-name').textContent = currentUser.name || currentUser.username;
-  document.getElementById('display-user-handle').textContent = `@${currentUser.username}`;
-  
-  const initials = (currentUser.name || currentUser.username).slice(0, 2).toUpperCase();
+  document.getElementById('display-user-name').textContent = activeUser.name || activeUser.username;
+  document.getElementById('display-user-handle').textContent = `@${activeUser.username}`;
+
+  const initials = (activeUser.name || activeUser.username).slice(0, 2).toUpperCase();
   document.getElementById('user-avatar-initials').textContent = initials;
 
-  const roleBadge = document.getElementById('user-role-badge');
-  roleBadge.textContent = currentUser.role.toUpperCase();
-  if (currentUser.role === 'patient') {
-    roleBadge.classList.add('role-patient');
+  const roleIndicator = document.getElementById('user-role-badge');
+  roleIndicator.textContent = activeUser.role.toUpperCase();
+  if (activeUser.role === 'patient') {
+    roleIndicator.classList.add('role-patient');
   } else {
-    roleBadge.classList.remove('role-patient');
+    roleIndicator.classList.remove('role-patient');
   }
 
-  setupViewForRole();
+  applyRolePermissions();
   switchView('dashboard');
 }
 
-function setupViewForRole() {
-  const isStaff = currentUser && currentUser.role === 'staff';
-  
-  document.querySelectorAll('.staff-only').forEach(el => {
+function applyRolePermissions() {
+  const isStaff = activeUser && activeUser.role === 'staff';
+
+  document.querySelectorAll('.staff-only').forEach((elem) => {
     if (isStaff) {
-      el.classList.remove('hidden');
+      elem.classList.remove('hidden');
     } else {
-      el.classList.add('hidden');
+      elem.classList.add('hidden');
     }
   });
 
   const patientNavText = document.getElementById('nav-patients-text');
   if (patientNavText) {
-    patientNavText.textContent = isStaff ? 'All Patients' : 'My Health Profile';
+    patientNavText.textContent = isStaff ? 'All Patients (20)' : 'My Medical Profile';
   }
 
   const quickActionText = document.getElementById('quick-action-text');
   if (quickActionText) {
-    quickActionText.textContent = isStaff ? 'New Record' : 'Book Appointment';
+    quickActionText.textContent = isStaff ? 'Register Patient' : 'Book Consultation';
   }
 }
 
-// ================= VIEW SWITCHING =================
+/* --------------------------------------------------------------------------
+   2. Navigation & View Routing
+   -------------------------------------------------------------------------- */
 
-function switchView(viewName) {
-  currentView = viewName;
-  
-  document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => {
-    btn.classList.remove('active');
+function switchView(targetViewKey) {
+  activeView = targetViewKey;
+
+  document.querySelectorAll('.sidebar-nav .nav-item').forEach((button) => {
+    button.classList.remove('active');
   });
-  
-  const currentNavBtn = Array.from(document.querySelectorAll('.sidebar-nav .nav-item'))
-    .find(b => b.getAttribute('onclick')?.includes(viewName));
-  if (currentNavBtn) currentNavBtn.classList.add('active');
 
-  document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
-  const targetView = document.getElementById(`view-${viewName}`);
-  if (targetView) targetView.classList.add('active');
+  const activeNavButton = Array.from(document.querySelectorAll('.sidebar-nav .nav-item'))
+    .find((btn) => btn.getAttribute('onclick')?.includes(targetViewKey));
+  if (activeNavButton) activeNavButton.classList.add('active');
 
-  const titleMap = {
-    dashboard: ['Hospital Overview', 'Real-time clinical metrics & status'],
-    employees: ['Medical Doctors & Staff', 'Registered clinical practitioners'],
-    patients: [currentUser.role === 'staff' ? 'Patient Database' : 'My Medical Profile', 'Patient records and billing details'],
-    consultations: ['Consultation Appointments', 'Scheduled doctor consultations'],
-    prescriptions: ['Digital Prescriptions', 'Medical diagnoses and prescribed drugs'],
-    pharmacy: ['Pharmacy Inventory', 'Medicine stocks and current rates'],
-    emt: ['Emergency Ambulance Fleet', 'Live EMT vehicles readiness']
+  document.querySelectorAll('.view-panel').forEach((panel) => panel.classList.remove('active'));
+  const targetPanel = document.getElementById(`view-${targetViewKey}`);
+  if (targetPanel) targetPanel.classList.add('active');
+
+  const routeHeaders = {
+    dashboard: ['Hospital Overview', 'Real-time clinical metrics & emergency status'],
+    beds: ['Hospital Ward Bed Matrix', 'Live theatre-style visualization of admitted patients & occupancy'],
+    employees: ['Medical Specialists & Doctors', 'Registry of 10 clinical practitioners and specialists'],
+    patients: [activeUser.role === 'staff' ? 'Patient Database (20 Records)' : 'My Medical Profile', 'Inpatient and outpatient clinical histories'],
+    consultations: ['Consultation Appointments', 'Scheduled clinical appointments & status'],
+    prescriptions: ['Digital Prescriptions & Rx Slip', 'Doctor diagnoses, dosage plans & printable slips'],
+    pharmacy: ['Pharmacy Stock & Formulations', 'Inventory levels, rates & instant restock'],
+    emt: ['Emergency Medical Fleet (EMT)', 'Ambulance readiness & dispatch status']
   };
 
-  if (titleMap[viewName]) {
-    document.getElementById('page-title').textContent = titleMap[viewName][0];
-    document.getElementById('page-subtitle').textContent = titleMap[viewName][1];
+  if (routeHeaders[targetViewKey]) {
+    document.getElementById('page-title').textContent = routeHeaders[targetViewKey][0];
+    document.getElementById('page-subtitle').textContent = routeHeaders[targetViewKey][1];
   }
 
-  if (viewName === 'dashboard') loadDashboardData();
-  if (viewName === 'employees') loadEmployees();
-  if (viewName === 'patients') loadPatients();
-  if (viewName === 'consultations') loadConsultations();
-  if (viewName === 'prescriptions') loadPrescriptions();
-  if (viewName === 'pharmacy') loadPharmacy();
-  if (viewName === 'emt') loadEmt();
+  if (targetViewKey === 'dashboard') refreshDashboard();
+  if (targetViewKey === 'beds') loadWardBeds();
+  if (targetViewKey === 'employees') loadDoctorsRegistry();
+  if (targetViewKey === 'patients') loadPatientsRegistry();
+  if (targetViewKey === 'consultations') loadConsultationsRegistry();
+  if (targetViewKey === 'prescriptions') loadPrescriptionsRegistry();
+  if (targetViewKey === 'pharmacy') loadPharmacyInventory();
+  if (targetViewKey === 'emt') loadAmbulanceFleet();
 }
 
 function openNewActionModal() {
-  if (currentUser.role === 'patient') {
+  if (activeUser.role === 'patient') {
     openModal('modal-add-consultation');
   } else {
     openModal('modal-add-patient');
   }
 }
 
-// ================= DATA LOADERS =================
+/* --------------------------------------------------------------------------
+   3. Dashboard Overview Data
+   -------------------------------------------------------------------------- */
 
-async function loadDashboardData() {
+async function refreshDashboard() {
   try {
-    const res = await fetch('/api/dashboard/stats');
-    const stats = await res.json();
+    const statsResponse = await fetch('/api/dashboard/stats');
+    const metrics = await statsResponse.json();
 
-    document.getElementById('stat-consultations').textContent = stats.scheduled_consultations || 0;
-    document.getElementById('stat-patients').textContent = stats.patients || 0;
-    document.getElementById('stat-employees').textContent = stats.employees || 0;
-    document.getElementById('stat-ambulances').textContent = stats.available_ambulances || 0;
+    document.getElementById('stat-consultations').textContent = metrics.scheduled_consultations || 0;
+    document.getElementById('stat-available-beds').textContent = metrics.available_beds || 0;
+    document.getElementById('stat-patients').textContent = metrics.patients || 0;
+    document.getElementById('stat-employees').textContent = metrics.employees || 0;
+    document.getElementById('stat-ambulances').textContent = metrics.available_ambulances || 0;
 
-    const conRes = await fetch('/api/consultations');
-    const consultations = await conRes.json();
+    const consultationsResponse = await fetch('/api/consultations');
+    const appointments = await consultationsResponse.json();
     const dashConTbody = document.getElementById('dash-consultations-tbody');
-    dashConTbody.innerHTML = consultations.slice(0, 4).map(c => `
+    dashConTbody.innerHTML = appointments.slice(0, 4).map((item) => `
       <tr>
-        <td><strong>${escapeHtml(c.PATIENT_NAME)}</strong></td>
-        <td>${escapeHtml(c.DOCTOR_NAME)}</td>
-        <td>${escapeHtml(c.REASON)}</td>
-        <td><span class="status-pill status-${c.STATUS.toLowerCase()}">${c.STATUS}</span></td>
+        <td><strong>${escapeHtml(item.PATIENT_NAME)}</strong></td>
+        <td>${escapeHtml(item.DOCTOR_NAME)}</td>
+        <td>${escapeHtml(item.REASON)}</td>
+        <td><span class="status-pill status-${item.STATUS.toLowerCase()}">${item.STATUS}</span></td>
       </tr>
-    `).join('') || '<tr><td colspan="4" class="text-muted">No appointments found.</td></tr>';
+    `).join('') || '<tr><td colspan="4" class="text-muted">No scheduled appointments.</td></tr>';
 
-    const emtRes = await fetch('/api/emt');
-    const emts = await emtRes.json();
+    const emtResponse = await fetch('/api/emt');
+    const ambulances = await emtResponse.json();
     const dashEmtTbody = document.getElementById('dash-emt-tbody');
-    dashEmtTbody.innerHTML = emts.slice(0, 4).map(e => `
+    dashEmtTbody.innerHTML = ambulances.slice(0, 4).map((amb) => `
       <tr>
-        <td><strong>${escapeHtml(e.VNO)}</strong></td>
-        <td>${escapeHtml(e.VTYPE)}</td>
-        <td>${escapeHtml(e.DRIVER_NAME)}</td>
-        <td><span class="status-pill status-${e.STATUS.toLowerCase()}">${e.STATUS}</span></td>
+        <td><strong>${escapeHtml(amb.VNO)}</strong></td>
+        <td>${escapeHtml(amb.VTYPE)}</td>
+        <td>${escapeHtml(amb.DRIVER_NAME)}</td>
+        <td><span class="status-pill status-${amb.STATUS.toLowerCase()}">${amb.STATUS}</span></td>
       </tr>
     `).join('') || '<tr><td colspan="4">No ambulances found.</td></tr>';
   } catch (err) {
-    console.error('Failed to load dashboard data:', err);
+    console.error('Error loading dashboard statistics:', err);
   }
 }
 
-async function loadEmployees() {
+/* --------------------------------------------------------------------------
+   4. Theatre-Style Hospital Ward Bed Visualization
+   -------------------------------------------------------------------------- */
+
+async function loadWardBeds() {
   try {
-    const res = await fetch('/api/employees');
-    const list = await res.json();
-    const tbody = document.getElementById('employees-tbody');
-    tbody.innerHTML = list.map(emp => `
+    const response = await fetch('/api/beds');
+    hospitalBedsCache = await response.json();
+    renderBedsMatrix(hospitalBedsCache);
+  } catch (err) {
+    notifyUser('Failed to load ward beds layout', 'error');
+  }
+}
+
+function renderBedsMatrix(beds) {
+  const container = document.getElementById('ward-sections-container');
+  if (!container) return;
+
+  const groupedWards = beds.reduce((acc, bed) => {
+    acc[bed.WARD_TYPE] = acc[bed.WARD_TYPE] || [];
+    acc[bed.WARD_TYPE].push(bed);
+    return acc;
+  }, {});
+
+  const isStaff = activeUser && activeUser.role === 'staff';
+
+  container.innerHTML = Object.keys(groupedWards).map((wardName) => {
+    const wardBeds = groupedWards[wardName];
+    const availableCount = wardBeds.filter((b) => b.STATUS === 'Available').length;
+
+    return `
+      <div class="ward-block glass-panel">
+        <div class="ward-block-header">
+          <h3><i class="fa-solid fa-hospital"></i> ${escapeHtml(wardName)}</h3>
+          <span class="ward-badge">${availableCount} of ${wardBeds.length} Beds Available</span>
+        </div>
+        <div class="beds-grid-theatre">
+          ${wardBeds.map((bed) => {
+            const stateClass = `state-${bed.STATUS.toLowerCase()}`;
+            const isOccupied = bed.STATUS === 'Occupied';
+
+            return `
+              <div class="bed-seat-card ${stateClass}" onclick="handleBedCardClick('${bed.BED_ID}')">
+                <i class="fa-solid fa-bed"></i>
+                <span class="bed-number">${escapeHtml(bed.BED_NUMBER)}</span>
+                <span class="bed-status-tag">${bed.STATUS}</span>
+                
+                ${isOccupied ? `
+                  <div class="bed-tooltip">
+                    <h4><i class="fa-solid fa-user"></i> ${escapeHtml(bed.PATIENT_NAME || 'Admitted Patient')}</h4>
+                    <p><strong>Age/Gender:</strong> ${bed.PATIENT_AGE || '--'} yrs / ${escapeHtml(bed.PATIENT_GENDER || '--')}</p>
+                    <p><strong>Condition:</strong> ${escapeHtml(bed.PATIENT_ISSUE || 'Under observation')}</p>
+                    <p><strong>Admitted:</strong> ${escapeHtml(bed.ASSIGNED_DATE || 'Recent')}</p>
+                    <p><strong>Bill No:</strong> ${escapeHtml(bed.BILL_NO || 'N/A')}</p>
+                    ${isStaff ? '<p style="color: #38bdf8; font-size: 11px; margin-top: 4px;">Click to Discharge Bed</p>' : ''}
+                  </div>
+                ` : `
+                  <div class="bed-tooltip">
+                    <h4>Bed ${escapeHtml(bed.BED_NUMBER)}</h4>
+                    <p style="color: #34d399;">Ready for admission.</p>
+                    ${isStaff ? '<p style="color: #38bdf8; font-size: 11px; margin-top: 4px;">Click to Allocate Patient</p>' : ''}
+                  </div>
+                `}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function handleBedCardClick(bedId) {
+  const bed = hospitalBedsCache.find((b) => b.BED_ID === bedId);
+  if (!bed) return;
+
+  if (activeUser.role !== 'staff') {
+    if (bed.STATUS === 'Occupied') {
+      notifyUser(`Bed ${bed.BED_NUMBER} is occupied by ${bed.PATIENT_NAME} (${bed.PATIENT_ISSUE})`, 'info');
+    } else {
+      notifyUser(`Bed ${bed.BED_NUMBER} in ${bed.WARD_TYPE} is Available.`, 'info');
+    }
+    return;
+  }
+
+  if (bed.STATUS === 'Occupied') {
+    if (confirm(`Discharge patient ${bed.PATIENT_NAME} from ${bed.BED_NUMBER} (${bed.WARD_TYPE})?`)) {
+      const response = await fetch('/api/beds/vacate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ BED_ID: bedId })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        notifyUser(data.message, 'success');
+        loadWardBeds();
+        refreshDashboard();
+      } else {
+        notifyUser(data.error, 'error');
+      }
+    }
+  } else if (bed.STATUS === 'Available') {
+    openModal('modal-assign-bed');
+    setTimeout(() => {
+      const bedDropdown = document.getElementById('bed-select-id');
+      if (bedDropdown) bedDropdown.value = bedId;
+    }, 150);
+  }
+}
+
+async function handleAssignBed(event) {
+  event.preventDefault();
+  const bedId = document.getElementById('bed-select-id').value;
+  const patientId = document.getElementById('bed-patient-id').value;
+
+  try {
+    const response = await fetch('/api/beds/assign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ BED_ID: bedId, PATIENT_ID: patientId })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to allocate bed');
+
+    notifyUser(payload.message, 'success');
+    closeModal('modal-assign-bed');
+    loadWardBeds();
+    refreshDashboard();
+  } catch (err) {
+    notifyUser(err.message, 'error');
+  }
+}
+
+/* --------------------------------------------------------------------------
+   5. Doctors & Medical Staff Registry (10 Doctors)
+   -------------------------------------------------------------------------- */
+
+async function loadDoctorsRegistry() {
+  try {
+    const response = await fetch('/api/employees');
+    const doctorsList = await response.json();
+    const tableBody = document.getElementById('employees-tbody');
+
+    tableBody.innerHTML = doctorsList.map((doc) => `
       <tr>
-        <td><code>${escapeHtml(emp.EID)}</code></td>
-        <td><strong>${escapeHtml(emp.NAME)}</strong></td>
-        <td><span class="badge-role">${escapeHtml(emp.DEPARTMENT)}</span></td>
-        <td>${emp.AGE} yrs / ${escapeHtml(emp.GENDER)}</td>
-        <td>₹${emp.SALARY.toLocaleString()}</td>
-        <td>${escapeHtml(emp.MOBILE_NO || 'N/A')}</td>
+        <td><code>${escapeHtml(doc.EID)}</code></td>
+        <td><strong>${escapeHtml(doc.NAME)}</strong></td>
+        <td><span class="badge-role">${escapeHtml(doc.DEPARTMENT)}</span></td>
+        <td>${doc.AGE} yrs / ${escapeHtml(doc.GENDER)}</td>
+        <td>₹${Number(doc.SALARY).toLocaleString()}</td>
+        <td><a href="tel:${doc.MOBILE_NO}" style="color: #38bdf8; text-decoration: none;"><i class="fa-solid fa-phone"></i> ${escapeHtml(doc.MOBILE_NO || 'N/A')}</a></td>
         <td>
-          <button class="btn-danger-sm" onclick="deleteEmployee('${emp.EID}')">
+          <button class="btn-danger-sm" onclick="deleteDoctorRecord('${doc.EID}')" title="Delete doctor record">
             <i class="fa-solid fa-trash"></i>
           </button>
         </td>
       </tr>
-    `).join('') || '<tr><td colspan="7">No employees found.</td></tr>';
+    `).join('') || '<tr><td colspan="7">No medical staff found.</td></tr>';
   } catch (err) {
-    showToast('Failed to load employees', 'error');
+    notifyUser('Failed to load doctors list', 'error');
   }
 }
 
-async function loadPatients() {
-  try {
-    const res = await fetch('/api/patients');
-    const list = await res.json();
-    const tbody = document.getElementById('patients-tbody');
-    const isStaff = currentUser.role === 'staff';
+async function handleAddEmployee(event) {
+  event.preventDefault();
+  const doctorPayload = {
+    EID: document.getElementById('emp-eid').value.trim(),
+    NAME: document.getElementById('emp-name').value.trim(),
+    DEPARTMENT: document.getElementById('emp-dept').value.trim(),
+    MOBILE_NO: document.getElementById('emp-mobile').value.trim(),
+    AGE: parseInt(document.getElementById('emp-age').value, 10),
+    GENDER: document.getElementById('emp-gender').value,
+    SALARY: parseFloat(document.getElementById('emp-salary').value)
+  };
 
-    tbody.innerHTML = list.map(pat => `
+  const response = await fetch('/api/employees', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(doctorPayload)
+  });
+  const data = await response.json();
+
+  if (response.ok) {
+    notifyUser(data.message, 'success');
+    closeModal('modal-add-employee');
+    loadDoctorsRegistry();
+    refreshDashboard();
+  } else {
+    notifyUser(data.error, 'error');
+  }
+}
+
+async function deleteDoctorRecord(eid) {
+  if (confirm(`Remove doctor/staff record for ${eid}?`)) {
+    const response = await fetch(`/api/employees/${eid}`, { method: 'DELETE' });
+    const data = await response.json();
+    if (response.ok) {
+      notifyUser(data.message, 'success');
+      loadDoctorsRegistry();
+      refreshDashboard();
+    } else {
+      notifyUser(data.error, 'error');
+    }
+  }
+}
+
+/* --------------------------------------------------------------------------
+   6. Patients Database (20 Patients)
+   -------------------------------------------------------------------------- */
+
+async function loadPatientsRegistry() {
+  try {
+    const response = await fetch('/api/patients');
+    const patientsList = await response.json();
+    const tableBody = document.getElementById('patients-tbody');
+    const isStaff = activeUser.role === 'staff';
+
+    tableBody.innerHTML = patientsList.map((pat) => `
       <tr>
         <td><code>${escapeHtml(pat.PID)}</code></td>
         <td><strong>${escapeHtml(pat.NAME)}</strong></td>
-        <td>${escapeHtml(pat.ISSUE || 'General')}</td>
+        <td>${escapeHtml(pat.ISSUE || 'General Checkup')}</td>
         <td>${pat.AGE || '--'} / ${escapeHtml(pat.GENDER || '--')}</td>
-        <td>₹${(pat.FEES || 0).toLocaleString()}</td>
-        <td>${escapeHtml(pat.MOBILE_NO || 'N/A')}</td>
+        <td>₹${Number(pat.FEES || 0).toLocaleString()}</td>
+        <td><a href="tel:${pat.MOBILE_NO}" style="color: #38bdf8; text-decoration: none;"><i class="fa-solid fa-phone"></i> ${escapeHtml(pat.MOBILE_NO || 'N/A')}</a></td>
         <td><span class="badge-role">${escapeHtml(pat.BILL_NO || 'N/A')}</span></td>
-        ${isStaff ? `<td><button class="btn-danger-sm" onclick="deletePatient('${pat.PID}')"><i class="fa-solid fa-trash"></i></button></td>` : ''}
+        ${isStaff ? `
+          <td>
+            <button class="btn-danger-sm" onclick="deletePatientRecord('${pat.PID}')" title="Delete record">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
+        ` : ''}
       </tr>
     `).join('') || '<tr><td colspan="8">No patient records available.</td></tr>';
   } catch (err) {
-    showToast('Failed to load patient records', 'error');
+    notifyUser('Failed to load patient database', 'error');
   }
 }
 
-async function loadConsultations() {
-  try {
-    const res = await fetch('/api/consultations');
-    const list = await res.json();
-    const tbody = document.getElementById('consultations-tbody');
-    const isStaff = currentUser.role === 'staff';
+async function handleAddPatient(event) {
+  event.preventDefault();
+  const patientPayload = {
+    NAME: document.getElementById('pat-name').value.trim(),
+    ISSUE: document.getElementById('pat-issue').value.trim(),
+    AGE: parseInt(document.getElementById('pat-age').value, 10),
+    GENDER: document.getElementById('pat-gender').value,
+    FEES: parseFloat(document.getElementById('pat-fees').value),
+    MOBILE_NO: document.getElementById('pat-mobile').value.trim()
+  };
 
-    tbody.innerHTML = list.map(c => `
+  const response = await fetch('/api/patients', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patientPayload)
+  });
+  const data = await response.json();
+
+  if (response.ok) {
+    notifyUser(data.message, 'success');
+    closeModal('modal-add-patient');
+    loadPatientsRegistry();
+    refreshDashboard();
+  } else {
+    notifyUser(data.error, 'error');
+  }
+}
+
+async function deletePatientRecord(pid) {
+  if (confirm(`Are you sure you want to delete patient ${pid}?`)) {
+    const response = await fetch(`/api/patients/${pid}`, { method: 'DELETE' });
+    const data = await response.json();
+    if (response.ok) {
+      notifyUser(data.message, 'success');
+      loadPatientsRegistry();
+      refreshDashboard();
+    } else {
+      notifyUser(data.error, 'error');
+    }
+  }
+}
+
+/* --------------------------------------------------------------------------
+   7. Consultations & Prescribe Flow
+   -------------------------------------------------------------------------- */
+
+async function loadConsultationsRegistry() {
+  try {
+    const response = await fetch('/api/consultations');
+    const consultations = await response.json();
+    const tableBody = document.getElementById('consultations-tbody');
+    const isStaff = activeUser.role === 'staff';
+
+    tableBody.innerHTML = consultations.map((item) => `
       <tr>
-        <td><code>${escapeHtml(c.CONSULTATION_ID)}</code></td>
-        <td><strong>${escapeHtml(c.PATIENT_NAME)}</strong></td>
-        <td>${escapeHtml(c.DOCTOR_NAME)} <small>(${escapeHtml(c.DEPARTMENT)})</small></td>
-        <td>${escapeHtml(c.REASON)}</td>
-        <td>₹${(c.FEES || 0).toLocaleString()}</td>
-        <td>${escapeHtml(c.TIME)}</td>
-        <td><span class="status-pill status-${c.STATUS.toLowerCase()}">${c.STATUS}</span></td>
+        <td><code>${escapeHtml(item.CONSULTATION_ID)}</code></td>
+        <td><strong>${escapeHtml(item.PATIENT_NAME)}</strong></td>
+        <td>${escapeHtml(item.DOCTOR_NAME)} <small style="color: #94a3b8;">(${escapeHtml(item.DEPARTMENT)})</small></td>
+        <td>${escapeHtml(item.REASON)}</td>
+        <td>₹${Number(item.FEES || 0).toLocaleString()}</td>
+        <td>${escapeHtml(item.TIME)}</td>
+        <td><span class="status-pill status-${item.STATUS.toLowerCase()}">${item.STATUS}</span></td>
         ${isStaff ? `
           <td>
-            ${c.STATUS === 'Scheduled' ? `<button class="btn btn-sm btn-primary" onclick="preparePrescriptionFor('${c.CONSULTATION_ID}')"><i class="fa-solid fa-prescription"></i> Prescribe</button>` : '<small class="text-muted">Completed</small>'}
+            ${item.STATUS === 'Scheduled' ? `
+              <button class="btn btn-sm btn-primary" onclick="preparePrescriptionFor('${item.CONSULTATION_ID}')">
+                <i class="fa-solid fa-file-prescription"></i> Prescribe
+              </button>
+            ` : '<small class="text-muted"><i class="fa-solid fa-check"></i> Completed</small>'}
           </td>
         ` : ''}
       </tr>
     `).join('') || '<tr><td colspan="8">No consultations scheduled.</td></tr>';
   } catch (err) {
-    showToast('Failed to load consultations', 'error');
+    notifyUser('Failed to load consultations list', 'error');
   }
 }
 
-async function loadPrescriptions() {
+async function handleBookConsultation(event) {
+  event.preventDefault();
+  const appointmentPayload = {
+    PATIENT_ID: document.getElementById('con-patient-id')?.value,
+    EMP_ID: document.getElementById('con-doctor-id').value,
+    REASON: document.getElementById('con-reason').value.trim(),
+    FEES: parseFloat(document.getElementById('con-fee').value),
+    TIME: document.getElementById('con-time').value.replace('T', ' ')
+  };
+
+  const response = await fetch('/api/consultations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(appointmentPayload)
+  });
+  const data = await response.json();
+
+  if (response.ok) {
+    notifyUser(data.message, 'success');
+    closeModal('modal-add-consultation');
+    loadConsultationsRegistry();
+    refreshDashboard();
+  } else {
+    notifyUser(data.error, 'error');
+  }
+}
+
+async function preparePrescriptionFor(consultationId) {
   try {
-    const res = await fetch('/api/prescriptions');
-    const list = await res.json();
+    const response = await fetch(`/api/consultations/${consultationId}`);
+    const consultationData = await response.json();
+    if (!response.ok) throw new Error(consultationData.error || 'Failed to fetch consultation details');
+
+    openModal('modal-add-prescription');
+
+    setTimeout(() => {
+      const rxDropdown = document.getElementById('rx-consultation-id');
+      if (rxDropdown) {
+        rxDropdown.innerHTML = `<option value="${consultationData.CONSULTATION_ID}" selected>${consultationData.CONSULTATION_ID} - ${consultationData.PATIENT_NAME} (Dr. ${consultationData.DOCTOR_NAME})</option>`;
+      }
+      document.getElementById('rx-diagnosis').value = consultationData.REASON || '';
+    }, 150);
+  } catch (err) {
+    notifyUser(err.message, 'error');
+  }
+}
+
+function addMedicineRow() {
+  const container = document.getElementById('rx-meds-container');
+  const row = document.createElement('div');
+  row.className = 'medicine-row';
+  row.innerHTML = `
+    <input type="text" placeholder="Medicine Name (e.g. Paracetamol 650mg)" class="rx-med-name" required />
+    <input type="text" placeholder="Dosage (e.g. 1 Tablet)" class="rx-med-dosage" value="1 Tablet" />
+    <input type="text" placeholder="Frequency (e.g. Twice daily)" class="rx-med-freq" value="Twice daily after meals" />
+    <button type="button" class="btn-danger-sm" onclick="this.parentElement.remove()" title="Remove"><i class="fa-solid fa-xmark"></i></button>
+  `;
+  container.appendChild(row);
+}
+
+async function handleCreatePrescription(event) {
+  event.preventDefault();
+  const medicineRows = document.querySelectorAll('.medicine-row');
+  const medicinesList = [];
+
+  medicineRows.forEach((row) => {
+    const medName = row.querySelector('.rx-med-name').value.trim();
+    if (medName) {
+      medicinesList.push({
+        name: medName,
+        dosage: row.querySelector('.rx-med-dosage').value.trim(),
+        frequency: row.querySelector('.rx-med-freq').value.trim(),
+        duration: '5 Days'
+      });
+    }
+  });
+
+  const prescriptionPayload = {
+    CONSULTATION_ID: document.getElementById('rx-consultation-id').value,
+    DIAGNOSIS: document.getElementById('rx-diagnosis').value.trim(),
+    INSTRUCTIONS: document.getElementById('rx-instructions').value.trim(),
+    MEDICINES: medicinesList
+  };
+
+  try {
+    const response = await fetch('/api/prescriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(prescriptionPayload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to issue prescription');
+
+    notifyUser(data.message, 'success');
+    closeModal('modal-add-prescription');
+    switchView('prescriptions');
+  } catch (err) {
+    notifyUser(err.message, 'error');
+  }
+}
+
+/* --------------------------------------------------------------------------
+   8. Prescriptions List & Download/Print Rx Slip
+   -------------------------------------------------------------------------- */
+
+async function loadPrescriptionsRegistry() {
+  try {
+    const response = await fetch('/api/prescriptions');
+    const prescriptions = await response.json();
     const container = document.getElementById('prescriptions-container');
 
-    container.innerHTML = list.map(rx => `
+    container.innerHTML = prescriptions.map((rx) => `
       <div class="prescription-card">
-        <div class="rx-head">
-          <span class="rx-num"><i class="fa-solid fa-file-waveform"></i> ${escapeHtml(rx.PRESCRIPTION_ID)}</span>
-          <span class="rx-date">${escapeHtml(rx.DATE)}</span>
+        <div>
+          <div class="rx-head">
+            <span class="rx-num"><i class="fa-solid fa-file-waveform"></i> ${escapeHtml(rx.PRESCRIPTION_ID)}</span>
+            <span class="rx-date"><i class="fa-solid fa-calendar"></i> ${escapeHtml(rx.DATE)}</span>
+          </div>
+          <div class="rx-patient">${escapeHtml(rx.PATIENT_NAME)}</div>
+          <small class="text-muted"><i class="fa-solid fa-user-doctor"></i> Prescribed by ${escapeHtml(rx.DOCTOR_NAME)} (${escapeHtml(rx.DEPARTMENT)})</small>
+          <div class="rx-diag"><strong>Diagnosis:</strong> ${escapeHtml(rx.DIAGNOSIS)}</div>
+          ${rx.INSTRUCTIONS ? `<div class="rx-diag"><strong>Instructions:</strong> ${escapeHtml(rx.INSTRUCTIONS)}</div>` : ''}
+          <div class="rx-meds-list">
+            ${rx.medicines.map((m) => `
+              <div class="rx-med-item">
+                <span><strong>${escapeHtml(m.MEDICINE_NAME)}</strong> (${escapeHtml(m.DOSAGE)})</span>
+                <span>${escapeHtml(m.FREQUENCY)}</span>
+              </div>
+            `).join('')}
+          </div>
         </div>
-        <div class="rx-patient">${escapeHtml(rx.PATIENT_NAME)}</div>
-        <small class="text-muted"><i class="fa-solid fa-user-doctor"></i> Prescribed by ${escapeHtml(rx.DOCTOR_NAME)}</small>
-        <div class="rx-diag"><strong>Diagnosis:</strong> ${escapeHtml(rx.DIAGNOSIS)}</div>
-        ${rx.INSTRUCTIONS ? `<div class="rx-diag"><strong>Instructions:</strong> ${escapeHtml(rx.INSTRUCTIONS)}</div>` : ''}
-        <div class="rx-meds-list">
-          ${rx.medicines.map(m => `
-            <div class="rx-med-item">
-              <span><strong>${escapeHtml(m.MEDICINE_NAME)}</strong> (${escapeHtml(m.DOSAGE)})</span>
-              <span>${escapeHtml(m.FREQUENCY)} - ${escapeHtml(m.DURATION)}</span>
-            </div>
-          `).join('')}
-        </div>
+        <button class="btn btn-sm btn-outline btn-block" onclick="openPrescriptionSlip('${rx.PRESCRIPTION_ID}')" style="margin-top: 10px;">
+          <i class="fa-solid fa-download"></i> Download / Print Rx Slip
+        </button>
       </div>
-    `).join('') || '<p class="text-muted">No prescriptions recorded yet.</p>';
+    `).join('') || '<p class="text-muted">No prescriptions issued yet.</p>';
   } catch (err) {
-    showToast('Failed to load prescriptions', 'error');
+    notifyUser('Failed to load prescriptions', 'error');
   }
 }
 
-async function loadPharmacy() {
+async function openPrescriptionSlip(prescriptionId) {
   try {
-    const res = await fetch('/api/pharmacy');
-    const list = await res.json();
-    const tbody = document.getElementById('pharmacy-tbody');
-    const isStaff = currentUser.role === 'staff';
+    const response = await fetch(`/api/prescriptions/${prescriptionId}`);
+    const rx = await response.json();
+    if (!response.ok) throw new Error(rx.error || 'Failed to fetch prescription slip');
 
-    tbody.innerHTML = list.map(med => `
+    const container = document.getElementById('printable-rx-content');
+    container.innerHTML = `
+      <div class="prescription-slip">
+        <div class="slip-header">
+          <div>
+            <div class="slip-hospital-title">PulseCare+ Specialty Hospital</div>
+            <p style="font-size: 12px; color: #64748b;">Emergency Care & Multi-Specialty Clinical Center</p>
+            <p style="font-size: 11px; color: #64748b;">24/7 Hotline: +91 98765 43210 | www.pulsecare.hospital</p>
+          </div>
+          <div style="text-align: right;">
+            <span style="font-size: 18px; font-weight: 800; color: #0284c7;">℞ PRESCRIPTION</span>
+            <p style="font-size: 12px; font-weight: 700;">ID: ${escapeHtml(rx.PRESCRIPTION_ID)}</p>
+            <p style="font-size: 12px;">Date: ${escapeHtml(rx.DATE)}</p>
+          </div>
+        </div>
+
+        <div class="slip-patient-info">
+          <div>
+            <p><strong>Patient Name:</strong> ${escapeHtml(rx.PATIENT_NAME)} (PID: ${escapeHtml(rx.PATIENT_ID)})</p>
+            <p><strong>Age / Gender:</strong> ${rx.PATIENT_AGE || '--'} yrs / ${escapeHtml(rx.PATIENT_GENDER || '--')}</p>
+            <p><strong>Emergency Mobile:</strong> ${escapeHtml(rx.PATIENT_MOBILE || 'N/A')}</p>
+          </div>
+          <div>
+            <p><strong>Attending Doctor:</strong> ${escapeHtml(rx.DOCTOR_NAME)}</p>
+            <p><strong>Department:</strong> ${escapeHtml(rx.DEPARTMENT)}</p>
+            <p><strong>Consultation Ref:</strong> ${escapeHtml(rx.CONSULTATION_ID)}</p>
+          </div>
+        </div>
+
+        <div style="margin: 14px 0;">
+          <p><strong>Primary Diagnosis:</strong> <span style="color: #0f172a; font-weight: 700;">${escapeHtml(rx.DIAGNOSIS)}</span></p>
+          ${rx.INSTRUCTIONS ? `<p style="margin-top: 4px;"><strong>Clinical Advice & Diet:</strong> ${escapeHtml(rx.INSTRUCTIONS)}</p>` : ''}
+        </div>
+
+        <table class="slip-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Prescribed Medicine</th>
+              <th>Dosage</th>
+              <th>Frequency</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rx.medicines.map((m, idx) => `
+              <tr>
+                <td>${idx + 1}</td>
+                <td><strong>${escapeHtml(m.MEDICINE_NAME)}</strong></td>
+                <td>${escapeHtml(m.DOSAGE)}</td>
+                <td>${escapeHtml(m.FREQUENCY)}</td>
+                <td>${escapeHtml(m.DURATION)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="slip-footer">
+          <p style="font-size: 11px; color: #64748b;">Digitally verified & validated medical record.</p>
+          <div class="slip-sign-line">
+            Dr. ${escapeHtml(rx.DOCTOR_NAME)}<br>
+            <span style="font-size: 10px; font-weight: normal;">Authorized Medical Officer</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    openModal('modal-download-prescription');
+  } catch (err) {
+    notifyUser(err.message, 'error');
+  }
+}
+
+/* --------------------------------------------------------------------------
+   9. Pharmacy & Emergency Fleet
+   -------------------------------------------------------------------------- */
+
+async function loadPharmacyInventory() {
+  try {
+    const response = await fetch('/api/pharmacy');
+    const medicines = await response.json();
+    const tableBody = document.getElementById('pharmacy-tbody');
+    const isStaff = activeUser.role === 'staff';
+
+    tableBody.innerHTML = medicines.map((med) => `
       <tr>
         <td><strong>${escapeHtml(med.MEDICINE_NAME)}</strong></td>
         <td><span class="badge-role">${escapeHtml(med.MEDICINE_TYPE)}</span></td>
@@ -372,10 +825,10 @@ async function loadPharmacy() {
             ${med.STOCK} units ${med.STOCK < 50 ? '(Low)' : ''}
           </span>
         </td>
-        <td>₹${med.PRICE.toFixed(2)}</td>
+        <td>₹${Number(med.PRICE).toFixed(2)}</td>
         ${isStaff ? `
           <td>
-            <button class="btn btn-sm btn-outline" onclick="promptRestock('${escapeHtml(med.MEDICINE_NAME)}', ${med.STOCK})">
+            <button class="btn btn-sm btn-outline" onclick="promptStockUpdate('${escapeHtml(med.MEDICINE_NAME)}', ${med.STOCK})">
               <i class="fa-solid fa-boxes-stacked"></i> Update Stock
             </button>
           </td>
@@ -383,51 +836,138 @@ async function loadPharmacy() {
       </tr>
     `).join('') || '<tr><td colspan="5">Pharmacy inventory is empty.</td></tr>';
   } catch (err) {
-    showToast('Failed to load pharmacy stock', 'error');
+    notifyUser('Failed to load pharmacy stock', 'error');
   }
 }
 
-async function loadEmt() {
-  try {
-    const res = await fetch('/api/emt');
-    const list = await res.json();
-    const tbody = document.getElementById('emt-tbody');
-    const isStaff = currentUser.role === 'staff';
+async function handleAddMedicine(event) {
+  event.preventDefault();
+  const medicinePayload = {
+    MEDICINE_NAME: document.getElementById('med-name').value.trim(),
+    MEDICINE_TYPE: document.getElementById('med-type').value,
+    STOCK: parseInt(document.getElementById('med-stock').value, 10),
+    PRICE: parseFloat(document.getElementById('med-price').value)
+  };
 
-    tbody.innerHTML = list.map(e => `
+  const response = await fetch('/api/pharmacy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(medicinePayload)
+  });
+  const data = await response.json();
+
+  if (response.ok) {
+    notifyUser(data.message, 'success');
+    closeModal('modal-add-medicine');
+    loadPharmacyInventory();
+    refreshDashboard();
+  } else {
+    notifyUser(data.error, 'error');
+  }
+}
+
+async function promptStockUpdate(medicineName, currentStock) {
+  const updatedUnits = prompt(`Update stock count for ${medicineName}:`, currentStock);
+  if (updatedUnits !== null && !isNaN(updatedUnits)) {
+    await fetch(`/api/pharmacy/${encodeURIComponent(medicineName)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ STOCK: parseInt(updatedUnits, 10) })
+    });
+    notifyUser(`Stock updated for ${medicineName}`, 'success');
+    loadPharmacyInventory();
+  }
+}
+
+async function loadAmbulanceFleet() {
+  try {
+    const response = await fetch('/api/emt');
+    const fleet = await response.json();
+    const tableBody = document.getElementById('emt-tbody');
+    const isStaff = activeUser.role === 'staff';
+
+    tableBody.innerHTML = fleet.map((amb) => `
       <tr>
-        <td><code>${escapeHtml(e.VNO)}</code></td>
-        <td><strong>${escapeHtml(e.VTYPE)}</strong></td>
-        <td>${escapeHtml(e.DRIVER_NAME)}</td>
-        <td><a href="tel:${e.MOBILE_NO}" style="color: #38bdf8; text-decoration: none;"><i class="fa-solid fa-phone"></i> ${escapeHtml(e.MOBILE_NO)}</a></td>
-        <td><span class="status-pill status-${e.STATUS.toLowerCase()}">${e.STATUS}</span></td>
+        <td><code>${escapeHtml(amb.VNO)}</code></td>
+        <td><strong>${escapeHtml(amb.VTYPE)}</strong></td>
+        <td>${escapeHtml(amb.DRIVER_NAME)}</td>
+        <td><a href="tel:${amb.MOBILE_NO}" style="color: #38bdf8; text-decoration: none;"><i class="fa-solid fa-phone"></i> ${escapeHtml(amb.MOBILE_NO)}</a></td>
+        <td><span class="status-pill status-${amb.STATUS.toLowerCase()}">${amb.STATUS}</span></td>
         ${isStaff ? `
           <td>
-            <select onchange="updateEmtStatus('${e.VNO}', this.value)" style="padding: 4px 8px; border-radius: 6px; background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-color);">
-              <option value="Available" ${e.STATUS === 'Available' ? 'selected' : ''}>Available</option>
-              <option value="Dispatched" ${e.STATUS === 'Dispatched' ? 'selected' : ''}>Dispatched</option>
-              <option value="Maintenance" ${e.STATUS === 'Maintenance' ? 'selected' : ''}>Maintenance</option>
+            <select onchange="updateAmbulanceStatus('${amb.VNO}', this.value)" style="padding: 4px 8px; border-radius: 6px; background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--border-color);">
+              <option value="Available" ${amb.STATUS === 'Available' ? 'selected' : ''}>Available</option>
+              <option value="Dispatched" ${amb.STATUS === 'Dispatched' ? 'selected' : ''}>Dispatched</option>
+              <option value="Maintenance" ${amb.STATUS === 'Maintenance' ? 'selected' : ''}>Maintenance</option>
             </select>
           </td>
         ` : ''}
       </tr>
-    `).join('') || '<tr><td colspan="6">No ambulances found.</td></tr>';
+    `).join('') || '<tr><td colspan="6">No ambulances registered.</td></tr>';
   } catch (err) {
-    showToast('Failed to load EMT fleet', 'error');
+    notifyUser('Failed to load EMT fleet', 'error');
   }
 }
 
-// ================= MODAL & MUTATION HANDLERS =================
+async function handleAddEmt(event) {
+  event.preventDefault();
+  const ambulancePayload = {
+    VNO: document.getElementById('emt-vno').value.trim(),
+    VTYPE: document.getElementById('emt-vtype').value,
+    DRIVER_NAME: document.getElementById('emt-driver').value.trim(),
+    MOBILE_NO: document.getElementById('emt-mobile').value.trim(),
+    STATUS: 'Available'
+  };
+
+  const response = await fetch('/api/emt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ambulancePayload)
+  });
+  const data = await response.json();
+
+  if (response.ok) {
+    notifyUser(data.message, 'success');
+    closeModal('modal-add-emt');
+    loadAmbulanceFleet();
+    refreshDashboard();
+  } else {
+    notifyUser(data.error, 'error');
+  }
+}
+
+async function updateAmbulanceStatus(vehicleNo, newStatus) {
+  try {
+    const response = await fetch(`/api/emt/${vehicleNo}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ STATUS: newStatus })
+    });
+    if (response.ok) {
+      notifyUser(`Ambulance ${vehicleNo} marked as ${newStatus}`, 'success');
+      refreshDashboard();
+    }
+  } catch (err) {
+    notifyUser('Failed to update ambulance status', 'error');
+  }
+}
+
+/* --------------------------------------------------------------------------
+   10. Modal Dialogs & Helper Utilities
+   -------------------------------------------------------------------------- */
 
 function openModal(modalId) {
   if (modalId === 'modal-add-consultation') {
-    populateConsultationDropdowns();
+    populateConsultationSelectors();
   }
   if (modalId === 'modal-add-prescription') {
-    populatePrescriptionDropdowns();
-    const medsCont = document.getElementById('rx-meds-container');
-    if (medsCont) medsCont.innerHTML = '';
+    populatePrescriptionConsultations();
+    const medsContainer = document.getElementById('rx-meds-container');
+    if (medsContainer) medsContainer.innerHTML = '';
     addMedicineRow();
+  }
+  if (modalId === 'modal-assign-bed') {
+    populateBedAllocationSelectors();
   }
   document.getElementById(modalId)?.classList.remove('hidden');
 }
@@ -436,299 +976,92 @@ function closeModal(modalId) {
   document.getElementById(modalId)?.classList.add('hidden');
 }
 
-async function populateConsultationDropdowns() {
-  const patSelect = document.getElementById('con-patient-id');
-  const docSelect = document.getElementById('con-doctor-id');
+async function populateConsultationSelectors() {
+  const patientSelect = document.getElementById('con-patient-id');
+  const doctorSelect = document.getElementById('con-doctor-id');
 
-  if (patSelect) {
-    const pRes = await fetch('/api/patients');
-    const patients = await pRes.json();
-    patSelect.innerHTML = patients.map(p => `<option value="${p.PID}">${p.NAME} (${p.PID})</option>`).join('');
+  if (patientSelect) {
+    const pResponse = await fetch('/api/patients');
+    const patients = await pResponse.json();
+    patientSelect.innerHTML = patients.map((p) => `<option value="${p.PID}">${p.NAME} (${p.PID})</option>`).join('');
   }
 
-  if (docSelect) {
-    const dRes = await fetch('/api/employees');
-    const doctors = await dRes.json();
-    docSelect.innerHTML = doctors.map(d => `<option value="${d.EID}">${d.NAME} - ${d.DEPARTMENT}</option>`).join('');
+  if (doctorSelect) {
+    const dResponse = await fetch('/api/employees');
+    const doctors = await dResponse.json();
+    doctorSelect.innerHTML = doctors.map((d) => `<option value="${d.EID}">${d.NAME} - ${d.DEPARTMENT}</option>`).join('');
   }
 
-  const now = new Date();
-  now.setHours(now.getHours() + 1);
-  now.setMinutes(0);
-  document.getElementById('con-time').value = now.toISOString().slice(0, 16);
+  const defaultDateTime = new Date();
+  defaultDateTime.setHours(defaultDateTime.getHours() + 1);
+  defaultDateTime.setMinutes(0);
+  document.getElementById('con-time').value = defaultDateTime.toISOString().slice(0, 16);
 }
 
-async function populatePrescriptionDropdowns() {
+async function populatePrescriptionConsultations() {
   const rxSelect = document.getElementById('rx-consultation-id');
-  const res = await fetch('/api/consultations');
-  const list = await res.json();
-  const activeConsultations = list.filter(c => c.STATUS === 'Scheduled');
-  rxSelect.innerHTML = activeConsultations.map(c => `<option value="${c.CONSULTATION_ID}">${c.CONSULTATION_ID} - ${c.PATIENT_NAME} (Dr. ${c.DOCTOR_NAME})</option>`).join('') || '<option value="">No Scheduled Consultations</option>';
+  const response = await fetch('/api/consultations');
+  const list = await response.json();
+  const scheduledList = list.filter((c) => c.STATUS === 'Scheduled');
+  rxSelect.innerHTML = scheduledList.map((c) => `<option value="${c.CONSULTATION_ID}">${c.CONSULTATION_ID} - ${c.PATIENT_NAME} (Dr. ${c.DOCTOR_NAME})</option>`).join('') || '<option value="">No Active Consultations</option>';
 }
 
-function addMedicineRow() {
-  const container = document.getElementById('rx-meds-container');
-  const row = document.createElement('div');
-  row.className = 'medicine-row';
-  row.innerHTML = `
-    <input type="text" placeholder="Medicine (e.g. Paracetamol 650mg)" class="rx-med-name" required />
-    <input type="text" placeholder="Dosage (e.g. 1 Tab)" class="rx-med-dosage" value="1 Tablet" />
-    <input type="text" placeholder="Freq (e.g. 2x Daily)" class="rx-med-freq" value="Twice Daily" />
-    <button type="button" class="btn-danger-sm" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
-  `;
-  container.appendChild(row);
-}
+async function populateBedAllocationSelectors() {
+  const bedSelect = document.getElementById('bed-select-id');
+  const patientSelect = document.getElementById('bed-patient-id');
 
-async function handleAddEmployee(e) {
-  e.preventDefault();
-  const data = {
-    EID: document.getElementById('emp-eid').value.trim(),
-    NAME: document.getElementById('emp-name').value.trim(),
-    DEPARTMENT: document.getElementById('emp-dept').value.trim(),
-    MOBILE_NO: document.getElementById('emp-mobile').value.trim(),
-    AGE: parseInt(document.getElementById('emp-age').value),
-    GENDER: document.getElementById('emp-gender').value,
-    SALARY: parseFloat(document.getElementById('emp-salary').value)
-  };
-
-  const res = await fetch('/api/employees', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  const resData = await res.json();
-  if (res.ok) {
-    showToast(resData.message, 'success');
-    closeModal('modal-add-employee');
-    loadEmployees();
-  } else {
-    showToast(resData.error, 'error');
+  if (bedSelect) {
+    const availableBeds = hospitalBedsCache.filter((b) => b.STATUS === 'Available');
+    bedSelect.innerHTML = availableBeds.map((b) => `<option value="${b.BED_ID}">${b.BED_ID} - ${b.WARD_TYPE} (${b.BED_NUMBER})</option>`).join('') || '<option value="">No Available Beds</option>';
   }
-}
 
-async function handleAddPatient(e) {
-  e.preventDefault();
-  const data = {
-    NAME: document.getElementById('pat-name').value.trim(),
-    ISSUE: document.getElementById('pat-issue').value.trim(),
-    AGE: parseInt(document.getElementById('pat-age').value),
-    GENDER: document.getElementById('pat-gender').value,
-    FEES: parseFloat(document.getElementById('pat-fees').value),
-    MOBILE_NO: document.getElementById('pat-mobile').value.trim()
-  };
-
-  const res = await fetch('/api/patients', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  const resData = await res.json();
-  if (res.ok) {
-    showToast(resData.message, 'success');
-    closeModal('modal-add-patient');
-    loadPatients();
-  } else {
-    showToast(resData.error, 'error');
-  }
-}
-
-async function handleBookConsultation(e) {
-  e.preventDefault();
-  const data = {
-    PATIENT_ID: document.getElementById('con-patient-id')?.value,
-    EMP_ID: document.getElementById('con-doctor-id').value,
-    REASON: document.getElementById('con-reason').value.trim(),
-    FEES: parseFloat(document.getElementById('con-fee').value),
-    TIME: document.getElementById('con-time').value.replace('T', ' ')
-  };
-
-  const res = await fetch('/api/consultations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  const resData = await res.json();
-  if (res.ok) {
-    showToast(resData.message, 'success');
-    closeModal('modal-add-consultation');
-    loadConsultations();
-  } else {
-    showToast(resData.error, 'error');
-  }
-}
-
-async function handleCreatePrescription(e) {
-  e.preventDefault();
-  const rows = document.querySelectorAll('.medicine-row');
-  const medicines = [];
-  rows.forEach(r => {
-    medicines.push({
-      name: r.querySelector('.rx-med-name').value.trim(),
-      dosage: r.querySelector('.rx-med-dosage').value.trim(),
-      frequency: r.querySelector('.rx-med-freq').value.trim(),
-      duration: '5 Days'
-    });
-  });
-
-  const data = {
-    CONSULTATION_ID: document.getElementById('rx-consultation-id').value,
-    DIAGNOSIS: document.getElementById('rx-diagnosis').value.trim(),
-    INSTRUCTIONS: document.getElementById('rx-instructions').value.trim(),
-    MEDICINES: medicines
-  };
-
-  const res = await fetch('/api/prescriptions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  const resData = await res.json();
-  if (res.ok) {
-    showToast(resData.message, 'success');
-    closeModal('modal-add-prescription');
-    switchView('prescriptions');
-  } else {
-    showToast(resData.error, 'error');
-  }
-}
-
-async function handleAddMedicine(e) {
-  e.preventDefault();
-  const data = {
-    MEDICINE_NAME: document.getElementById('med-name').value.trim(),
-    MEDICINE_TYPE: document.getElementById('med-type').value,
-    STOCK: parseInt(document.getElementById('med-stock').value),
-    PRICE: parseFloat(document.getElementById('med-price').value)
-  };
-
-  const res = await fetch('/api/pharmacy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  const resData = await res.json();
-  if (res.ok) {
-    showToast(resData.message, 'success');
-    closeModal('modal-add-medicine');
-    loadPharmacy();
-  } else {
-    showToast(resData.error, 'error');
-  }
-}
-
-async function handleAddEmt(e) {
-  e.preventDefault();
-  const data = {
-    VNO: document.getElementById('emt-vno').value.trim(),
-    VTYPE: document.getElementById('emt-vtype').value,
-    DRIVER_NAME: document.getElementById('emt-driver').value.trim(),
-    MOBILE_NO: document.getElementById('emt-mobile').value.trim(),
-    STATUS: 'Available'
-  };
-
-  const res = await fetch('/api/emt', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  const resData = await res.json();
-  if (res.ok) {
-    showToast(resData.message, 'success');
-    closeModal('modal-add-emt');
-    loadEmt();
-  } else {
-    showToast(resData.error, 'error');
-  }
-}
-
-async function updateEmtStatus(vno, status) {
-  try {
-    const res = await fetch(`/api/emt/${vno}/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ STATUS: status })
-    });
-    if (res.ok) showToast(`Ambulance ${vno} status set to ${status}`, 'success');
-  } catch (err) {
-    showToast('Failed to update ambulance status', 'error');
-  }
-}
-
-async function promptRestock(name, currentStock) {
-  const newStock = prompt(`Update stock units for ${name}:`, currentStock);
-  if (newStock !== null && !isNaN(newStock)) {
-    await fetch(`/api/pharmacy/${encodeURIComponent(name)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ STOCK: parseInt(newStock) })
-    });
-    showToast(`Stock updated for ${name}`, 'success');
-    loadPharmacy();
-  }
-}
-
-async function deleteEmployee(eid) {
-  if (confirm(`Are you sure you want to remove Employee ${eid}?`)) {
-    const res = await fetch(`/api/employees/${eid}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (res.ok) {
-      showToast(data.message, 'success');
-      loadEmployees();
-    } else {
-      showToast(data.error, 'error');
-    }
-  }
-}
-
-async function deletePatient(pid) {
-  if (confirm(`Are you sure you want to delete patient ${pid}?`)) {
-    const res = await fetch(`/api/patients/${pid}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (res.ok) {
-      showToast(data.message, 'success');
-      loadPatients();
-    } else {
-      showToast(data.error, 'error');
-    }
+  if (patientSelect) {
+    const pResponse = await fetch('/api/patients');
+    const patients = await pResponse.json();
+    patientSelect.innerHTML = patients.map((p) => `<option value="${p.PID}">${p.NAME} (${p.PID}) - ${p.ISSUE || 'Patient'}</option>`).join('');
   }
 }
 
 async function resetDatabasePrompt() {
-  if (confirm('Reset hospital database with fresh demo data?')) {
-    const res = await fetch('/api/admin/reset', { method: 'POST' });
-    const data = await res.json();
-    showToast(data.message, 'success');
-    loadDashboardData();
+  if (confirm('Reset the database with 10 fresh Doctors, 20 Patients, and Hospital Ward Beds?')) {
+    const response = await fetch('/api/admin/reset', { method: 'POST' });
+    const payload = await response.json();
+    notifyUser(payload.message, 'success');
+    refreshDashboard();
+    if (activeView === 'beds') loadWardBeds();
+    if (activeView === 'employees') loadDoctorsRegistry();
+    if (activeView === 'patients') loadPatientsRegistry();
   }
 }
 
 function filterTable(tableId, query) {
-  const q = query.toLowerCase();
-  const rows = document.querySelectorAll(`#${tableId} tbody tr`);
-  rows.forEach(r => {
-    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  const filterVal = query.toLowerCase();
+  const tableRows = document.querySelectorAll(`#${tableId} tbody tr`);
+  tableRows.forEach((row) => {
+    row.style.display = row.textContent.toLowerCase().includes(filterVal) ? '' : 'none';
   });
 }
 
 function filterPrescriptions(query) {
-  const q = query.toLowerCase();
-  document.querySelectorAll('.prescription-card').forEach(card => {
-    card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+  const filterVal = query.toLowerCase();
+  document.querySelectorAll('.prescription-card').forEach((card) => {
+    card.style.display = card.textContent.toLowerCase().includes(filterVal) ? '' : 'none';
   });
 }
 
-function showToast(message, type = 'info') {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> <span>${escapeHtml(message)}</span>`;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
+function notifyUser(message, statusType = 'info') {
+  const toastWrapper = document.getElementById('toast-container');
+  if (!toastWrapper) return;
+  const toastItem = document.createElement('div');
+  toastItem.className = `toast toast-${statusType}`;
+  toastItem.innerHTML = `<i class="fa-solid fa-circle-info"></i> <span>${escapeHtml(message)}</span>`;
+  toastWrapper.appendChild(toastItem);
+  setTimeout(() => toastItem.remove(), 4000);
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
+function escapeHtml(rawString) {
+  if (!rawString) return '';
+  return String(rawString)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
