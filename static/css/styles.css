@@ -1,3 +1,7 @@
+/* ===================================================
+   PULSECARE+ VIBRANT & COLORFUL HOSPITAL UI SYSTEM
+   =================================================== */
+
 :root {
   --primary: #0ea5e9;
   --primary-dark: #0284c7;
@@ -550,7 +554,7 @@ body {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 18px;
   margin-bottom: 24px;
 }
@@ -581,6 +585,10 @@ body {
 
 .card-gradient-amber {
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(120, 53, 15, 0.6));
+}
+
+.card-gradient-rose {
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.3), rgba(136, 19, 55, 0.6));
 }
 
 .stat-icon {
@@ -652,6 +660,7 @@ body {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
+  flex-wrap: wrap;
 }
 
 .search-input-wrap {
@@ -721,7 +730,184 @@ body {
 .status-maintenance { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
 .status-scheduled { background: rgba(14, 165, 233, 0.2); color: #38bdf8; }
 .status-completed { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+.status-occupied { background: rgba(239, 68, 68, 0.2); color: #f87171; }
 
+/* ================= THEATRE-STYLE WARD BED MAP ================= */
+.ward-legend {
+  display: flex;
+  gap: 20px;
+  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.5);
+  margin-bottom: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.legend-box {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.legend-box.available { background: #10b981; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5); }
+.legend-box.occupied { background: #ef4444; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+.legend-box.maintenance { background: #64748b; }
+
+.ward-sections-container {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.ward-block {
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.ward-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 10px;
+}
+
+.ward-block-header h3 {
+  font-size: 17px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ward-badge {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+}
+
+.beds-grid-theatre {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  gap: 14px;
+}
+
+.bed-seat-card {
+  position: relative;
+  background: rgba(15, 23, 42, 0.8);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 14px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition);
+  user-select: none;
+}
+
+.bed-seat-card:hover {
+  transform: translateY(-4px) scale(1.03);
+  z-index: 10;
+}
+
+.bed-seat-card i {
+  font-size: 24px;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.bed-seat-card .bed-number {
+  font-weight: 800;
+  font-size: 13px;
+  display: block;
+}
+
+.bed-seat-card .bed-status-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Bed State Colors */
+.bed-seat-card.state-available {
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+}
+.bed-seat-card.state-available:hover {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+}
+
+.bed-seat-card.state-occupied {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+.bed-seat-card.state-occupied:hover {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+}
+
+.bed-seat-card.state-maintenance {
+  border-color: rgba(100, 116, 139, 0.5);
+  background: rgba(100, 116, 139, 0.1);
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* Tooltip Popup on Bed Hover */
+.bed-seat-card .bed-tooltip {
+  position: absolute;
+  bottom: 110%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 230px;
+  background: #0f172a;
+  border: 1px solid #38bdf8;
+  border-radius: 8px;
+  padding: 10px;
+  text-align: left;
+  font-size: 12px;
+  color: #fff;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.7);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.bed-seat-card:hover .bed-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(-5px);
+}
+
+.bed-tooltip h4 {
+  font-size: 13px;
+  color: #38bdf8;
+  margin-bottom: 4px;
+}
+
+.bed-tooltip p {
+  margin: 2px 0;
+  color: #cbd5e1;
+}
+
+/* ================= PRESCRIPTIONS GRID & CARDS ================= */
 .prescriptions-list-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -734,6 +920,9 @@ body {
   border-radius: var(--radius-md);
   padding: 18px;
   transition: var(--transition);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .prescription-card:hover {
@@ -776,16 +965,87 @@ body {
   padding: 10px;
   border-radius: 8px;
   font-size: 12px;
-  margin-top: 8px;
+  margin: 8px 0 14px;
 }
 
 .rx-med-item {
   display: flex;
   justify-content: space-between;
-  padding: 3px 0;
+  padding: 4px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+/* ================= PRINTABLE PRESCRIPTION SLIP ================= */
+.prescription-slip {
+  background: #ffffff;
+  color: #0f172a;
+  padding: 30px;
+  border-radius: 10px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+.slip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 3px solid #0284c7;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+
+.slip-hospital-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0284c7;
+}
+
+.slip-patient-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  background: #f1f5f9;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+  font-size: 13px;
+}
+
+.slip-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+
+.slip-table th {
+  background: #0284c7;
+  color: #fff;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.slip-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.slip-footer {
+  margin-top: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.slip-sign-line {
+  border-top: 1px solid #0f172a;
+  width: 180px;
+  text-align: center;
+  font-size: 12px;
+  padding-top: 4px;
+  font-weight: 700;
+}
+
+/* Modals */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -809,7 +1069,7 @@ body {
 }
 
 .modal-lg {
-  max-width: 650px;
+  max-width: 700px;
 }
 
 .modal-head {
@@ -854,6 +1114,7 @@ body {
   align-items: center;
 }
 
+/* Toast Notifications */
 .toast-container {
   position: fixed;
   bottom: 24px;
@@ -891,9 +1152,35 @@ body {
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* Print Rules */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #modal-download-prescription,
+  #modal-download-prescription * {
+    visibility: visible;
+  }
+  #modal-download-prescription {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: transparent;
+  }
+  .modal-head, .btn, .btn-close {
+    display: none !important;
+  }
+  .prescription-slip {
+    box-shadow: none;
+    padding: 0;
+  }
+}
+
 @media (max-width: 900px) {
   .app-layout { flex-direction: column; }
   .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border-color); }
   .dashboard-grid-2 { grid-template-columns: 1fr; }
   .main-content { padding: 16px; }
+  .beds-grid-theatre { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
 }
