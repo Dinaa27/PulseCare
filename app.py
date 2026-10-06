@@ -32,7 +32,7 @@ def staff_required(view):
         if "user" not in session:
             return jsonify({"error": "Authentication required."}), 401
         if session.get("role") != "staff":
-            return jsonify({"error": "Access denied. Only hospital staff and doctors have permission."}), 403
+            return jsonify({"error": "Access denied. Staff permission required."}), 403
         return view(**kwargs)
     return wrapped_view
 
@@ -50,7 +50,7 @@ def static_proxy(path):
     return send_from_directory("static", "index.html")
 
 
-# ================= AUTHENTICATION (DIRECT CREDENTIALS) =================
+# ================= AUTHENTICATION (EXPLICIT MESSAGES) =================
 
 @app.route("/api/auth/register", methods=["POST"])
 def register():
@@ -71,10 +71,11 @@ def register():
     conn = get_db()
     cursor = conn.cursor()
 
+    # Check if account already exists
     cursor.execute("SELECT USERNAME FROM USER_DATA WHERE USERNAME = ?", (username,))
     if cursor.fetchone():
         conn.close()
-        return jsonify({"error": "Username already taken. Please choose another."}), 409
+        return jsonify({"error": "Account already exists. Please login."}), 409
 
     hashed_pw = generate_password_hash(password)
     cursor.execute(
@@ -125,8 +126,13 @@ def login():
     row = cursor.fetchone()
     conn.close()
 
-    if not row or not check_password_hash(row["PASSWORD"], password):
-        return jsonify({"error": "Invalid username or password"}), 401
+    # Check if account does not exist
+    if not row:
+        return jsonify({"error": "Account does not exist. Please register."}), 404
+
+    # Check password match
+    if not check_password_hash(row["PASSWORD"], password):
+        return jsonify({"error": "Incorrect password. Please try again."}), 401
 
     session["user"] = row["USERNAME"]
     session["role"] = row["ROLE"]
@@ -227,7 +233,7 @@ def get_stats():
     })
 
 
-# ================= HOSPITAL WARD BEDS (THEATRE-STYLE MAP) =================
+# ================= HOSPITAL WARD BEDS & PATIENT BOOKING =================
 
 @app.route("/api/beds", methods=["GET"])
 @login_required
@@ -249,6 +255,59 @@ def get_beds():
     return jsonify(rows)
 
 
+# Patient Direct Bed Booking
+@app.route("/api/beds/book", methods=["POST"])
+@login_required
+def book_bed():
+    data = request.get_json() or {}
+    bed_id = data.get("BED_ID")
+    assigned_date = datetime.now().strftime("%Y-%m-%d")
+
+    if not bed_id:
+        return jsonify({"error": "Bed ID is required"}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Get the patient profile of the logged in user
+    cursor.execute("SELECT PID, NAME FROM PATIENTS WHERE USERNAME = ?", (session["user"],))
+    patient = cursor.fetchone()
+    if not patient:
+        conn.close()
+        return jsonify({"error": "No patient profile found for this account. Please register your patient details first."}), 400
+
+    patient_id = patient["PID"]
+    patient_name = patient["NAME"]
+
+    # Verify bed availability
+    cursor.execute("SELECT STATUS, WARD_TYPE, BED_NUMBER FROM BEDS WHERE BED_ID = ?", (bed_id,))
+    bed = cursor.fetchone()
+    if not bed:
+        conn.close()
+        return jsonify({"error": "Bed not found"}), 404
+    if bed["STATUS"] != "Available":
+        conn.close()
+        return jsonify({"error": f"Bed {bed_id} is currently {bed['STATUS'].lower()} and cannot be booked."}), 409
+
+    # Free up any previously booked bed by this patient
+    cursor.execute("UPDATE BEDS SET STATUS = 'Available', PATIENT_ID = NULL, ASSIGNED_DATE = NULL WHERE PATIENT_ID = ?", (patient_id,))
+
+    # Allocate bed
+    cursor.execute(
+        "UPDATE BEDS SET STATUS = 'Occupied', PATIENT_ID = ?, ASSIGNED_DATE = ? WHERE BED_ID = ?",
+        (patient_id, assigned_date, bed_id),
+    )
+
+    # Log notification for Admin & Staff
+    alert_msg = f"Patient {patient_name} reserved Bed {bed['BED_NUMBER']} in {bed['WARD_TYPE']}."
+    cursor.execute("INSERT INTO NOTIFICATIONS (TYPE, MESSAGE) VALUES ('bed', ?)", (alert_msg,))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Successfully reserved Bed {bed['BED_NUMBER']} ({bed['WARD_TYPE']})!"})
+
+
+# Staff Bed Allocation
 @app.route("/api/beds/assign", methods=["POST"])
 @staff_required
 def assign_bed():
@@ -263,26 +322,27 @@ def assign_bed():
     conn = get_db()
     cursor = conn.cursor()
 
-    # Verify patient exists
     cursor.execute("SELECT NAME FROM PATIENTS WHERE PID = ?", (patient_id,))
     patient = cursor.fetchone()
     if not patient:
         conn.close()
         return jsonify({"error": f"Patient with ID {patient_id} does not exist"}), 404
 
-    # Vacate any existing bed occupied by this patient
     cursor.execute("UPDATE BEDS SET STATUS = 'Available', PATIENT_ID = NULL, ASSIGNED_DATE = NULL WHERE PATIENT_ID = ?", (patient_id,))
-
-    # Assign new bed
     cursor.execute(
         "UPDATE BEDS SET STATUS = 'Occupied', PATIENT_ID = ?, ASSIGNED_DATE = ? WHERE BED_ID = ?",
         (patient_id, assigned_date, bed_id),
     )
+
+    alert_msg = f"Staff allocated Bed {bed_id} to Patient {patient['NAME']}."
+    cursor.execute("INSERT INTO NOTIFICATIONS (TYPE, MESSAGE) VALUES ('bed', ?)", (alert_msg,))
+
     conn.commit()
     conn.close()
     return jsonify({"message": f"Bed {bed_id} successfully allocated to {patient['NAME']}"})
 
 
+# Staff Bed Vacate
 @app.route("/api/beds/vacate", methods=["POST"])
 @staff_required
 def vacate_bed():
@@ -301,6 +361,124 @@ def vacate_bed():
     conn.commit()
     conn.close()
     return jsonify({"message": f"Bed {bed_id} discharged and marked Available"})
+
+
+# ================= PHARMACY & PATIENT MEDICINE PURCHASE =================
+
+@app.route("/api/pharmacy", methods=["GET"])
+@login_required
+def get_pharmacy():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM PHARMACY ORDER BY MEDICINE_NAME ASC")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+# Patient Medicine Purchase with Stock Validation & Alerts
+@app.route("/api/pharmacy/buy", methods=["POST"])
+@login_required
+def buy_medicine():
+    data = request.get_json() or {}
+    medicine_name = (data.get("MEDICINE_NAME") or "").strip()
+    quantity = int(data.get("QUANTITY", 1))
+
+    if not medicine_name or quantity < 1:
+        return jsonify({"error": "Please provide a valid medicine name and quantity (minimum 1)."}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT MEDICINE_NAME, STOCK, PRICE FROM PHARMACY WHERE MEDICINE_NAME = ?", (medicine_name,))
+    med = cursor.fetchone()
+    if not med:
+        conn.close()
+        return jsonify({"error": f"Medicine '{medicine_name}' is not in the pharmacy catalog."}), 404
+
+    # Validate stock limits
+    if quantity > med["STOCK"]:
+        conn.close()
+        return jsonify({
+            "error": f"Requested quantity ({quantity} units) exceeds available stock ({med['STOCK']} units)."
+        }), 400
+
+    total_price = med["PRICE"] * quantity
+    new_stock = med["STOCK"] - quantity
+    cursor.execute("UPDATE PHARMACY SET STOCK = ? WHERE MEDICINE_NAME = ?", (new_stock, medicine_name))
+
+    # Log purchase notification for Admin
+    user_name = session.get("name") or session.get("user")
+    alert_msg = f"Order: Patient {user_name} purchased {quantity} unit(s) of {medicine_name} (Total: ₹{total_price:.2f})."
+    cursor.execute("INSERT INTO NOTIFICATIONS (TYPE, MESSAGE) VALUES ('pharmacy', ?)", (alert_msg,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "message": f"Successfully purchased {quantity} unit(s) of {medicine_name} for ₹{total_price:.2f}!",
+        "total_price": total_price,
+        "remaining_stock": new_stock
+    })
+
+
+@app.route("/api/pharmacy", methods=["POST"])
+@staff_required
+def add_medicine():
+    data = request.get_json() or {}
+    name = data.get("MEDICINE_NAME", "").strip()
+    mtype = data.get("MEDICINE_TYPE", "").strip()
+    stock = int(data.get("STOCK", 0))
+    price = float(data.get("PRICE", 0.0))
+
+    if not name or not mtype:
+        return jsonify({"error": "Medicine Name and Type are required"}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO PHARMACY (MEDICINE_NAME, MEDICINE_TYPE, STOCK, PRICE) VALUES (?, ?, ?, ?)",
+            (name, mtype, stock, price),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": f"Medicine {name} already exists. Update stock instead."}), 409
+
+    conn.close()
+    return jsonify({"message": f"Medicine {name} added to pharmacy inventory"}), 201
+
+
+@app.route("/api/pharmacy/<medicine_name>", methods=["PATCH"])
+@staff_required
+def update_stock(medicine_name):
+    data = request.get_json() or {}
+    stock = data.get("STOCK")
+    price = data.get("PRICE")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    if stock is not None:
+        cursor.execute("UPDATE PHARMACY SET STOCK = ? WHERE MEDICINE_NAME = ?", (int(stock), medicine_name))
+    if price is not None:
+        cursor.execute("UPDATE PHARMACY SET PRICE = ? WHERE MEDICINE_NAME = ?", (float(price), medicine_name))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Updated {medicine_name}"})
+
+
+# ================= NOTIFICATIONS (ADMIN ACTIVITY FEED) =================
+
+@app.route("/api/notifications", methods=["GET"])
+@staff_required
+def get_notifications():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM NOTIFICATIONS ORDER BY ID DESC LIMIT 20")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify(rows)
 
 
 # ================= EMPLOYEES (DOCTORS & STAFF) =================
@@ -385,7 +563,7 @@ def get_patients():
 
 
 @app.route("/api/patients", methods=["POST"])
-@login_required
+@staff_required
 def add_patient():
     data = request.get_json() or {}
     conn = get_db()
@@ -401,7 +579,7 @@ def add_patient():
     gender = data.get("GENDER", "Not Specified")
     fees = data.get("FEES", 0.0)
     mobile = data.get("MOBILE_NO", "").strip()
-    username = session.get("user") if session.get("role") == "patient" else data.get("USERNAME")
+    username = data.get("USERNAME")
 
     if not name:
         conn.close()
@@ -438,7 +616,6 @@ def delete_patient(pid):
 
 
 # ================= EMERGENCY MEDICAL TRANSPORT (AMBULANCE) =================
-# Patients can only view available ambulances; modifications are restricted to staff
 
 @app.route("/api/emt", methods=["GET"])
 @login_required
@@ -499,65 +676,6 @@ def update_emt_status(vno):
     conn.commit()
     conn.close()
     return jsonify({"message": f"Ambulance {vno} status updated to {status}"})
-
-
-# ================= PHARMACY =================
-
-@app.route("/api/pharmacy", methods=["GET"])
-@login_required
-def get_pharmacy():
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM PHARMACY ORDER BY MEDICINE_NAME ASC")
-    rows = [dict(r) for r in cursor.fetchall()]
-    conn.close()
-    return jsonify(rows)
-
-
-@app.route("/api/pharmacy", methods=["POST"])
-@staff_required
-def add_medicine():
-    data = request.get_json() or {}
-    name = data.get("MEDICINE_NAME", "").strip()
-    mtype = data.get("MEDICINE_TYPE", "").strip()
-    stock = int(data.get("STOCK", 0))
-    price = float(data.get("PRICE", 0.0))
-
-    if not name or not mtype:
-        return jsonify({"error": "Medicine Name and Type are required"}), 400
-
-    conn = get_db()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "INSERT INTO PHARMACY (MEDICINE_NAME, MEDICINE_TYPE, STOCK, PRICE) VALUES (?, ?, ?, ?)",
-            (name, mtype, stock, price),
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
-        conn.close()
-        return jsonify({"error": f"Medicine {name} already exists. Update stock instead."}), 409
-
-    conn.close()
-    return jsonify({"message": f"Medicine {name} added to pharmacy inventory"}), 201
-
-
-@app.route("/api/pharmacy/<medicine_name>", methods=["PATCH"])
-@staff_required
-def update_stock(medicine_name):
-    data = request.get_json() or {}
-    stock = data.get("STOCK")
-    price = data.get("PRICE")
-
-    conn = get_db()
-    cursor = conn.cursor()
-    if stock is not None:
-        cursor.execute("UPDATE PHARMACY SET STOCK = ? WHERE MEDICINE_NAME = ?", (int(stock), medicine_name))
-    if price is not None:
-        cursor.execute("UPDATE PHARMACY SET PRICE = ? WHERE MEDICINE_NAME = ?", (float(price), medicine_name))
-    conn.commit()
-    conn.close()
-    return jsonify({"message": f"Updated {medicine_name}"})
 
 
 # ================= CONSULTATIONS =================
@@ -624,7 +742,6 @@ def book_consultation():
     conn = get_db()
     cursor = conn.cursor()
 
-    # For patient account, enforce linkage to their own patient profile
     if session.get("role") == "patient":
         cursor.execute("SELECT PID FROM PATIENTS WHERE USERNAME = ?", (session["user"],))
         p_row = cursor.fetchone()
@@ -775,6 +892,7 @@ def reset_database():
     conn = get_db()
     cursor = conn.cursor()
     tables = [
+        "NOTIFICATIONS",
         "PRESCRIBED_MEDICINE",
         "PRESCRIPTION",
         "CONSULTATION",
