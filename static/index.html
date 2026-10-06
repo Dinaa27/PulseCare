@@ -39,7 +39,12 @@
         </div>
         <div class="form-group">
           <label><i class="fa-solid fa-lock"></i> Password</label>
-          <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" />
+          <div class="password-input-wrapper">
+            <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" />
+            <button type="button" class="btn-toggle-password" onclick="togglePasswordVisibility('login-password', 'login-eye-icon')" title="Toggle password visibility">
+              <i class="fa-solid fa-eye" id="login-eye-icon"></i>
+            </button>
+          </div>
         </div>
         <button type="submit" class="btn btn-primary btn-block">
           <span>Log In to Portal</span> <i class="fa-solid fa-arrow-right"></i>
@@ -59,15 +64,15 @@
           <label class="role-header-label">I am registering as:</label>
           <div class="role-radios">
             <label class="role-card">
-              <input type="radio" name="signup-role" value="patient" checked onchange="updateRoleBadge(this.value)" />
+              <input type="radio" name="signup-role" value="patient" checked />
               <div class="role-card-inner">
                 <i class="fa-solid fa-hospital-user"></i>
                 <div class="role-name">Patient</div>
-                <small>Book visits & view Rx</small>
+                <small>Book visits, beds & Rx</small>
               </div>
             </label>
             <label class="role-card">
-              <input type="radio" name="signup-role" value="staff" onchange="updateRoleBadge(this.value)" />
+              <input type="radio" name="signup-role" value="staff" />
               <div class="role-card-inner">
                 <i class="fa-solid fa-user-doctor"></i>
                 <div class="role-name">Hospital Staff</div>
@@ -95,7 +100,12 @@
           </div>
           <div class="form-group">
             <label><i class="fa-solid fa-lock"></i> Password</label>
-            <input type="password" id="signup-password" placeholder="At least 6 chars" required minlength="6" />
+            <div class="password-input-wrapper">
+              <input type="password" id="signup-password" placeholder="At least 6 chars" required minlength="6" />
+              <button type="button" class="btn-toggle-password" onclick="togglePasswordVisibility('signup-password', 'signup-eye-icon')" title="Toggle password visibility">
+                <i class="fa-solid fa-eye" id="signup-eye-icon"></i>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -169,9 +179,11 @@
           <button class="btn btn-outline staff-only" onclick="resetDatabasePrompt()">
             <i class="fa-solid fa-rotate-left"></i> Reset Demo Data
           </button>
-          <button class="btn btn-primary" onclick="openNewActionModal()">
-            <i class="fa-solid fa-plus"></i> <span id="quick-action-text">New Appointment</span>
-          </button>
+          <div id="top-quick-action-container">
+            <button class="btn btn-primary" onclick="openNewActionModal()">
+              <i class="fa-solid fa-plus"></i> <span id="quick-action-text">Book Appointment</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -197,14 +209,16 @@
                 <span class="stat-meta"><i class="fa-solid fa-hospital"></i> Total ready</span>
               </div>
             </div>
-            <div class="stat-card card-gradient-rose">
+            <!-- Total Patients: Only visible to Doctors and Staff -->
+            <div class="stat-card card-gradient-rose staff-only">
               <div class="stat-icon"><i class="fa-solid fa-hospital-user"></i></div>
               <div class="stat-content">
-                <p>Total Patients</p>
+                <p>Total Registered Patients</p>
                 <h3 id="stat-patients">0</h3>
-                <span class="stat-meta"><i class="fa-solid fa-shield-halved"></i> 20 Registered</span>
+                <span class="stat-meta"><i class="fa-solid fa-shield-halved"></i> Clinical Records</span>
               </div>
             </div>
+            <!-- Medical Staff: Only visible to Staff -->
             <div class="stat-card card-gradient-purple staff-only">
               <div class="stat-icon"><i class="fa-solid fa-user-doctor"></i></div>
               <div class="stat-content">
@@ -267,20 +281,20 @@
           </div>
         </section>
 
-        <!-- 2. WARD BED VISUALIZATION MAP (Theatre-style) -->
+        <!-- 2. WARD BED VISUALIZATION MAP (70 Beds) -->
         <section id="view-beds" class="view-panel">
           <div class="table-card glass-panel">
             <div class="ward-legend">
               <span style="font-weight: 700; color: #38bdf8;"><i class="fa-solid fa-map"></i> Bed Status Legend:</span>
-              <div class="legend-item"><div class="legend-box available"></div> Available (Ready for Admission)</div>
-              <div class="legend-item"><div class="legend-box occupied"></div> Occupied (Hover / Click to view Patient)</div>
+              <div class="legend-item"><div class="legend-box available"></div> Available (Click to Book / Allocate)</div>
+              <div class="legend-item"><div class="legend-box occupied"></div> Occupied (Hover to view Patient)</div>
               <div class="legend-item"><div class="legend-box maintenance"></div> Sanitization / Maintenance</div>
               <button class="btn btn-sm btn-primary staff-only" style="margin-left: auto;" onclick="openModal('modal-assign-bed')">
-                <i class="fa-solid fa-user-plus"></i> Allocate Bed to Patient
+                <i class="fa-solid fa-user-plus"></i> Staff: Allocate Bed
               </button>
             </div>
 
-            <!-- Dynamic Wards Container -->
+            <!-- Dynamic 70 Beds Wards Container -->
             <div id="ward-sections-container" class="ward-sections-container"></div>
           </div>
         </section>
@@ -324,7 +338,8 @@
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input type="text" placeholder="Search patient name, issue, PID..." oninput="filterTable('patients-table', this.value)" />
               </div>
-              <button class="btn btn-primary" onclick="openModal('modal-add-patient')">
+              <!-- Register Patient button ONLY visible to staff -->
+              <button class="btn btn-primary staff-only" onclick="openModal('modal-add-patient')">
                 <i class="fa-solid fa-plus"></i> Register Patient
               </button>
             </div>
@@ -396,7 +411,7 @@
           </div>
         </section>
 
-        <!-- 7. PHARMACY VIEW -->
+        <!-- 7. PHARMACY VIEW (Role-Aware Stock & Purchase) -->
         <section id="view-pharmacy" class="view-panel">
           <div class="table-card glass-panel">
             <div class="table-header-bar">
@@ -414,9 +429,9 @@
                   <tr>
                     <th>Medicine Name</th>
                     <th>Type</th>
-                    <th>Current Stock</th>
+                    <th>Stock Availability</th>
                     <th>Price (INR)</th>
-                    <th class="staff-only">Actions</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody id="pharmacy-tbody"></tbody>
@@ -460,11 +475,44 @@
 
   <!-- ================= MODALS ================= -->
 
+  <!-- Modal: Patient Buy Medicine -->
+  <div id="modal-buy-medicine" class="modal-backdrop hidden">
+    <div class="modal-card glass-panel">
+      <div class="modal-head">
+        <h3><i class="fa-solid fa-cart-shopping"></i> Purchase Medicine</h3>
+        <button class="btn-close" onclick="closeModal('modal-buy-medicine')">&times;</button>
+      </div>
+      <form onsubmit="handleBuyMedicine(event)">
+        <div class="form-group">
+          <label>Selected Medicine</label>
+          <input type="text" id="buy-med-name" readonly style="background: rgba(0,0,0,0.4); font-weight: 700; color: #38bdf8;" />
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label>Price per Unit (INR)</label>
+            <input type="text" id="buy-med-price" readonly style="background: rgba(0,0,0,0.4);" />
+          </div>
+          <div class="form-group">
+            <label>Units / Quantity Required</label>
+            <input type="number" id="buy-med-qty" value="1" min="1" max="100" required oninput="calculatePurchaseTotal()" />
+          </div>
+        </div>
+        <div style="background: rgba(14, 165, 233, 0.15); padding: 12px; border-radius: 8px; margin-bottom: 16px; border: 1px solid rgba(14,165,233,0.3);">
+          <span style="font-size: 13px; color: #e2e8f0;">Total Payable Amount:</span>
+          <h3 id="buy-med-total" style="color: #34d399; font-size: 22px; margin-top: 4px;">₹0.00</h3>
+        </div>
+        <button type="submit" class="btn btn-gradient btn-block">
+          <i class="fa-solid fa-bag-shopping"></i> Confirm & Purchase
+        </button>
+      </form>
+    </div>
+  </div>
+
   <!-- Modal: Allocate Bed (Staff Only) -->
   <div id="modal-assign-bed" class="modal-backdrop hidden">
     <div class="modal-card glass-panel">
       <div class="modal-head">
-        <h3><i class="fa-solid fa-bed-pulse"></i> Allocate Hospital Bed</h3>
+        <h3><i class="fa-solid fa-bed-pulse"></i> Staff: Allocate Hospital Bed</h3>
         <button class="btn-close" onclick="closeModal('modal-assign-bed')">&times;</button>
       </div>
       <form onsubmit="handleAssignBed(event)">
@@ -476,7 +524,7 @@
           <label>Select Patient</label>
           <select id="bed-patient-id" required></select>
         </div>
-        <button type="submit" class="btn btn-primary btn-block">Confirm Bed Allocation</button>
+        <button type="submit" class="btn btn-primary btn-block">Confirm Allocation</button>
       </form>
     </div>
   </div>
@@ -547,7 +595,7 @@
     </div>
   </div>
 
-  <!-- Modal: Add Patient -->
+  <!-- Modal: Add Patient (Staff Only) -->
   <div id="modal-add-patient" class="modal-backdrop hidden">
     <div class="modal-card glass-panel">
       <div class="modal-head">
