@@ -1,12 +1,13 @@
 /* ==========================================================================
-   PulseCare+ Hospital Management System - Core Client Application Logic
+   PulseCare+ Hospital Management System - Complete Client Application Logic
    ========================================================================== */
 
 let activeUser = null;
 let activeView = 'dashboard';
 let hospitalBedsCache = [];
+let pharmacyInventoryCache = [];
 
-// Initialize application on DOM ready
+// Initialize app when DOM is fully loaded
 document.addEventListener('DOMContentLoaded', async () => {
   await verifySessionState();
   if (activeUser) {
@@ -16,35 +17,48 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 /* --------------------------------------------------------------------------
-   1. Authentication & Session Management
+   1. Password Toggle & Authentication Handlers
    -------------------------------------------------------------------------- */
 
-function switchAuthTab(selectedTab) {
-  const formLogin = document.getElementById('login-form');
-  const formSignup = document.getElementById('signup-form');
-  const tabLoginBtn = document.getElementById('tab-login');
-  const tabSignupBtn = document.getElementById('tab-signup');
+function togglePasswordVisibility(inputFieldId, eyeIconId) {
+  const passwordInput = document.getElementById(inputFieldId);
+  const eyeIcon = document.getElementById(eyeIconId);
 
-  if (selectedTab === 'login') {
-    formLogin.classList.remove('hidden');
-    formSignup.classList.add('hidden');
-    tabLoginBtn.classList.add('active');
-    tabSignupBtn.classList.remove('active');
+  if (!passwordInput || !eyeIcon) return;
+
+  if (passwordInput.type === 'password') {
+    passwordInput.type = 'text';
+    eyeIcon.classList.remove('fa-eye');
+    eyeIcon.classList.add('fa-eye-slash');
   } else {
-    formLogin.classList.add('hidden');
-    formSignup.classList.remove('hidden');
-    tabLoginBtn.classList.remove('active');
-    tabSignupBtn.classList.add('active');
+    passwordInput.type = 'password';
+    eyeIcon.classList.remove('fa-eye-slash');
+    eyeIcon.classList.add('fa-eye');
+  }
+}
+
+function switchAuthTab(targetTab) {
+  const loginForm = document.getElementById('login-form');
+  const signupForm = document.getElementById('signup-form');
+  const loginTabBtn = document.getElementById('tab-login');
+  const signupTabBtn = document.getElementById('tab-signup');
+
+  if (targetTab === 'login') {
+    loginForm.classList.remove('hidden');
+    signupForm.classList.add('hidden');
+    loginTabBtn.classList.add('active');
+    signupTabBtn.classList.remove('active');
+  } else {
+    loginForm.classList.add('hidden');
+    signupForm.classList.remove('hidden');
+    loginTabBtn.classList.remove('active');
+    signupTabBtn.classList.add('active');
   }
 }
 
 function fillDemo(username, password) {
   document.getElementById('login-username').value = username;
   document.getElementById('login-password').value = password;
-}
-
-function updateRoleBadge() {
-  // Handled dynamically on form submission
 }
 
 async function handleLogin(event) {
@@ -59,7 +73,7 @@ async function handleLogin(event) {
       body: JSON.stringify({ username: usernameInput, password: passwordInput })
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Authentication failed');
+    if (!response.ok) throw new Error(payload.error || 'Login failed');
 
     activeUser = payload.user;
     notifyUser(`Welcome back, ${activeUser.name}!`, 'success');
@@ -164,20 +178,16 @@ function applyRolePermissions() {
   if (patientNavText) {
     patientNavText.textContent = isStaff ? 'All Patients (20)' : 'My Medical Profile';
   }
-
-  const quickActionText = document.getElementById('quick-action-text');
-  if (quickActionText) {
-    quickActionText.textContent = isStaff ? 'Register Patient' : 'Book Consultation';
-  }
 }
 
 /* --------------------------------------------------------------------------
-   2. Navigation & View Routing
+   2. View Routing & Top Button Visibility Control
    -------------------------------------------------------------------------- */
 
 function switchView(targetViewKey) {
   activeView = targetViewKey;
 
+  // Update Sidebar Active States
   document.querySelectorAll('.sidebar-nav .nav-item').forEach((button) => {
     button.classList.remove('active');
   });
@@ -186,19 +196,30 @@ function switchView(targetViewKey) {
     .find((btn) => btn.getAttribute('onclick')?.includes(targetViewKey));
   if (activeNavButton) activeNavButton.classList.add('active');
 
+  // Toggle View Panels
   document.querySelectorAll('.view-panel').forEach((panel) => panel.classList.remove('active'));
   const targetPanel = document.getElementById(`view-${targetViewKey}`);
   if (targetPanel) targetPanel.classList.add('active');
 
+  // Control Top-Right "Book Consultation" Button: ONLY shown on Dashboard & Consultations
+  const topActionContainer = document.getElementById('top-quick-action-container');
+  if (topActionContainer) {
+    if (targetViewKey === 'dashboard' || targetViewKey === 'consultations') {
+      topActionContainer.classList.remove('hidden');
+    } else {
+      topActionContainer.classList.add('hidden');
+    }
+  }
+
   const routeHeaders = {
-    dashboard: ['Hospital Overview', 'Real-time clinical metrics & emergency status'],
-    beds: ['Hospital Ward Bed Matrix', 'Live theatre-style visualization of admitted patients & occupancy'],
+    dashboard: ['Hospital Overview', 'Real-time clinical metrics & status'],
+    beds: ['Hospital Ward Bed Matrix (70 Beds)', 'Live theatre-style visualization of admitted patients & occupancy'],
     employees: ['Medical Specialists & Doctors', 'Registry of 10 clinical practitioners and specialists'],
     patients: [activeUser.role === 'staff' ? 'Patient Database (20 Records)' : 'My Medical Profile', 'Inpatient and outpatient clinical histories'],
     consultations: ['Consultation Appointments', 'Scheduled clinical appointments & status'],
     prescriptions: ['Digital Prescriptions & Rx Slip', 'Doctor diagnoses, dosage plans & printable slips'],
-    pharmacy: ['Pharmacy Stock & Formulations', 'Inventory levels, rates & instant restock'],
-    emt: ['Emergency Medical Fleet (EMT)', 'Ambulance readiness & dispatch status']
+    pharmacy: ['Pharmacy Stock & Formulations', 'Inventory levels, rates & instant restock/purchase'],
+    emt: ['Emergency Medical Fleet (EMT)', 'Ambulance readiness & emergency hotline']
   };
 
   if (routeHeaders[targetViewKey]) {
@@ -217,11 +238,7 @@ function switchView(targetViewKey) {
 }
 
 function openNewActionModal() {
-  if (activeUser.role === 'patient') {
-    openModal('modal-add-consultation');
-  } else {
-    openModal('modal-add-patient');
-  }
+  openModal('modal-add-consultation');
 }
 
 /* --------------------------------------------------------------------------
@@ -268,7 +285,7 @@ async function refreshDashboard() {
 }
 
 /* --------------------------------------------------------------------------
-   4. Theatre-Style Hospital Ward Bed Visualization
+   4. Theatre-Style Hospital Ward Bed Map (70 Beds + Patient Booking)
    -------------------------------------------------------------------------- */
 
 async function loadWardBeds() {
@@ -307,6 +324,7 @@ function renderBedsMatrix(beds) {
           ${wardBeds.map((bed) => {
             const stateClass = `state-${bed.STATUS.toLowerCase()}`;
             const isOccupied = bed.STATUS === 'Occupied';
+            const isAvailable = bed.STATUS === 'Available';
 
             return `
               <div class="bed-seat-card ${stateClass}" onclick="handleBedCardClick('${bed.BED_ID}')">
@@ -320,14 +338,15 @@ function renderBedsMatrix(beds) {
                     <p><strong>Age/Gender:</strong> ${bed.PATIENT_AGE || '--'} yrs / ${escapeHtml(bed.PATIENT_GENDER || '--')}</p>
                     <p><strong>Condition:</strong> ${escapeHtml(bed.PATIENT_ISSUE || 'Under observation')}</p>
                     <p><strong>Admitted:</strong> ${escapeHtml(bed.ASSIGNED_DATE || 'Recent')}</p>
-                    <p><strong>Bill No:</strong> ${escapeHtml(bed.BILL_NO || 'N/A')}</p>
-                    ${isStaff ? '<p style="color: #38bdf8; font-size: 11px; margin-top: 4px;">Click to Discharge Bed</p>' : ''}
+                    ${isStaff ? '<p style="color: #38bdf8; font-size: 11px; margin-top: 4px; font-weight: bold;">Click to Discharge Bed</p>' : ''}
                   </div>
                 ` : `
                   <div class="bed-tooltip">
                     <h4>Bed ${escapeHtml(bed.BED_NUMBER)}</h4>
-                    <p style="color: #34d399;">Ready for admission.</p>
-                    ${isStaff ? '<p style="color: #38bdf8; font-size: 11px; margin-top: 4px;">Click to Allocate Patient</p>' : ''}
+                    <p style="color: #34d399;">Sanitized & Available.</p>
+                    <p style="color: #38bdf8; font-size: 11px; margin-top: 4px; font-weight: bold;">
+                      ${isStaff ? 'Click to Allocate Patient' : 'Click to Reserve this Bed'}
+                    </p>
                   </div>
                 `}
               </div>
@@ -343,15 +362,35 @@ async function handleBedCardClick(bedId) {
   const bed = hospitalBedsCache.find((b) => b.BED_ID === bedId);
   if (!bed) return;
 
-  if (activeUser.role !== 'staff') {
-    if (bed.STATUS === 'Occupied') {
-      notifyUser(`Bed ${bed.BED_NUMBER} is occupied by ${bed.PATIENT_NAME} (${bed.PATIENT_ISSUE})`, 'info');
+  // Patient Bed Booking Flow
+  if (activeUser.role === 'patient') {
+    if (bed.STATUS === 'Available') {
+      if (confirm(`Would you like to reserve Bed ${bed.BED_NUMBER} in ${bed.WARD_TYPE}?`)) {
+        try {
+          const response = await fetch('/api/beds/book', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ BED_ID: bedId })
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || 'Failed to reserve bed');
+
+          notifyUser(payload.message, 'success');
+          loadWardBeds();
+          refreshDashboard();
+        } catch (err) {
+          notifyUser(err.message, 'error');
+        }
+      }
+    } else if (bed.STATUS === 'Occupied') {
+      notifyUser(`Bed ${bed.BED_NUMBER} is currently occupied by patient ${bed.PATIENT_NAME}.`, 'info');
     } else {
-      notifyUser(`Bed ${bed.BED_NUMBER} in ${bed.WARD_TYPE} is Available.`, 'info');
+      notifyUser(`Bed ${bed.BED_NUMBER} is undergoing maintenance.`, 'info');
     }
     return;
   }
 
+  // Staff Bed Actions (Discharge or Allocate)
   if (bed.STATUS === 'Occupied') {
     if (confirm(`Discharge patient ${bed.PATIENT_NAME} from ${bed.BED_NUMBER} (${bed.WARD_TYPE})?`)) {
       const response = await fetch('/api/beds/vacate', {
@@ -401,7 +440,150 @@ async function handleAssignBed(event) {
 }
 
 /* --------------------------------------------------------------------------
-   5. Doctors & Medical Staff Registry (10 Doctors)
+   5. Pharmacy Stock & Patient Medicine Purchasing
+   -------------------------------------------------------------------------- */
+
+async function loadPharmacyInventory() {
+  try {
+    const response = await fetch('/api/pharmacy');
+    pharmacyInventoryCache = await response.json();
+    const tableBody = document.getElementById('pharmacy-tbody');
+    const isStaff = activeUser && activeUser.role === 'staff';
+
+    tableBody.innerHTML = pharmacyInventoryCache.map((med) => {
+      const isAvailable = med.STOCK > 0;
+      return `
+        <tr>
+          <td><strong>${escapeHtml(med.MEDICINE_NAME)}</strong></td>
+          <td><span class="badge-role">${escapeHtml(med.MEDICINE_TYPE)}</span></td>
+          <td>
+            ${isStaff ? `
+              <span style="color: ${med.STOCK < 50 ? '#f87171' : '#34d399'}; font-weight: 700;">
+                ${med.STOCK} units ${med.STOCK < 50 ? '(Low)' : ''}
+              </span>
+            ` : `
+              <span class="stock-badge-tag ${isAvailable ? 'stock-in' : 'stock-out'}">
+                <i class="fa-solid ${isAvailable ? 'fa-circle-check' : 'fa-circle-xmark'}"></i>
+                ${isAvailable ? 'Available' : 'Out of Stock'}
+              </span>
+            `}
+          </td>
+          <td>₹${Number(med.PRICE).toFixed(2)}</td>
+          <td>
+            ${isStaff ? `
+              <button class="btn btn-sm btn-outline" onclick="promptStockUpdate('${escapeHtml(med.MEDICINE_NAME)}', ${med.STOCK})">
+                <i class="fa-solid fa-boxes-stacked"></i> Update Stock
+              </button>
+            ` : `
+              <button class="btn btn-sm btn-primary" onclick="openBuyMedicineModal('${escapeHtml(med.MEDICINE_NAME)}', ${med.PRICE}, ${med.STOCK})" ${!isAvailable ? 'disabled' : ''}>
+                <i class="fa-solid fa-cart-plus"></i> Buy Medicine
+              </button>
+            `}
+          </td>
+        </tr>
+      `;
+    }).join('') || '<tr><td colspan="5">Pharmacy catalog is empty.</td></tr>';
+  } catch (err) {
+    notifyUser('Failed to load pharmacy catalog', 'error');
+  }
+}
+
+let selectedMedPrice = 0;
+let selectedMedStock = 0;
+
+function openBuyMedicineModal(medicineName, price, stock) {
+  selectedMedPrice = price;
+  selectedMedStock = stock;
+
+  document.getElementById('buy-med-name').value = medicineName;
+  document.getElementById('buy-med-price').value = `₹${price.toFixed(2)}`;
+  document.getElementById('buy-med-qty').value = 1;
+  calculatePurchaseTotal();
+
+  openModal('modal-buy-medicine');
+}
+
+function calculatePurchaseTotal() {
+  const qtyInput = document.getElementById('buy-med-qty');
+  const qty = parseInt(qtyInput.value, 10) || 1;
+
+  if (qty > selectedMedStock) {
+    notifyUser(`Warning: Requested quantity (${qty}) exceeds available stock (${selectedMedStock} units).`, 'error');
+  }
+
+  const total = qty * selectedMedPrice;
+  document.getElementById('buy-med-total').textContent = `₹${total.toFixed(2)}`;
+}
+
+async function handleBuyMedicine(event) {
+  event.preventDefault();
+  const medName = document.getElementById('buy-med-name').value;
+  const qty = parseInt(document.getElementById('buy-med-qty').value, 10);
+
+  if (qty > selectedMedStock) {
+    notifyUser(`Cannot proceed: Requested quantity (${qty}) exceeds available stock (${selectedMedStock} units).`, 'error');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/pharmacy/buy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ MEDICINE_NAME: medName, QUANTITY: qty })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to complete medicine purchase');
+
+    notifyUser(payload.message, 'success');
+    closeModal('modal-buy-medicine');
+    loadPharmacyInventory();
+    refreshDashboard();
+  } catch (err) {
+    notifyUser(err.message, 'error');
+  }
+}
+
+async function handleAddMedicine(event) {
+  event.preventDefault();
+  const medicinePayload = {
+    MEDICINE_NAME: document.getElementById('med-name').value.trim(),
+    MEDICINE_TYPE: document.getElementById('med-type').value,
+    STOCK: parseInt(document.getElementById('med-stock').value, 10),
+    PRICE: parseFloat(document.getElementById('med-price').value)
+  };
+
+  const response = await fetch('/api/pharmacy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(medicinePayload)
+  });
+  const data = await response.json();
+
+  if (response.ok) {
+    notifyUser(data.message, 'success');
+    closeModal('modal-add-medicine');
+    loadPharmacyInventory();
+    refreshDashboard();
+  } else {
+    notifyUser(data.error, 'error');
+  }
+}
+
+async function promptStockUpdate(medicineName, currentStock) {
+  const updatedUnits = prompt(`Update stock count for ${medicineName}:`, currentStock);
+  if (updatedUnits !== null && !isNaN(updatedUnits)) {
+    await fetch(`/api/pharmacy/${encodeURIComponent(medicineName)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ STOCK: parseInt(updatedUnits, 10) })
+    });
+    notifyUser(`Stock updated for ${medicineName}`, 'success');
+    loadPharmacyInventory();
+  }
+}
+
+/* --------------------------------------------------------------------------
+   6. Doctors & Medical Staff Registry (10 Doctors)
    -------------------------------------------------------------------------- */
 
 async function loadDoctorsRegistry() {
@@ -474,7 +656,7 @@ async function deleteDoctorRecord(eid) {
 }
 
 /* --------------------------------------------------------------------------
-   6. Patients Database (20 Patients)
+   7. Patients Database (20 Patients)
    -------------------------------------------------------------------------- */
 
 async function loadPatientsRegistry() {
@@ -482,7 +664,7 @@ async function loadPatientsRegistry() {
     const response = await fetch('/api/patients');
     const patientsList = await response.json();
     const tableBody = document.getElementById('patients-tbody');
-    const isStaff = activeUser.role === 'staff';
+    const isStaff = activeUser && activeUser.role === 'staff';
 
     tableBody.innerHTML = patientsList.map((pat) => `
       <tr>
@@ -550,7 +732,7 @@ async function deletePatientRecord(pid) {
 }
 
 /* --------------------------------------------------------------------------
-   7. Consultations & Prescribe Flow
+   8. Consultations & Prescribe Flow
    -------------------------------------------------------------------------- */
 
 async function loadConsultationsRegistry() {
@@ -558,7 +740,7 @@ async function loadConsultationsRegistry() {
     const response = await fetch('/api/consultations');
     const consultations = await response.json();
     const tableBody = document.getElementById('consultations-tbody');
-    const isStaff = activeUser.role === 'staff';
+    const isStaff = activeUser && activeUser.role === 'staff';
 
     tableBody.innerHTML = consultations.map((item) => `
       <tr>
@@ -687,7 +869,7 @@ async function handleCreatePrescription(event) {
 }
 
 /* --------------------------------------------------------------------------
-   8. Prescriptions List & Download/Print Rx Slip
+   9. Prescriptions List & Download/Print Rx Slip
    -------------------------------------------------------------------------- */
 
 async function loadPrescriptionsRegistry() {
@@ -806,85 +988,15 @@ async function openPrescriptionSlip(prescriptionId) {
 }
 
 /* --------------------------------------------------------------------------
-   9. Pharmacy & Emergency Fleet
+   10. Emergency Ambulance Fleet
    -------------------------------------------------------------------------- */
-
-async function loadPharmacyInventory() {
-  try {
-    const response = await fetch('/api/pharmacy');
-    const medicines = await response.json();
-    const tableBody = document.getElementById('pharmacy-tbody');
-    const isStaff = activeUser.role === 'staff';
-
-    tableBody.innerHTML = medicines.map((med) => `
-      <tr>
-        <td><strong>${escapeHtml(med.MEDICINE_NAME)}</strong></td>
-        <td><span class="badge-role">${escapeHtml(med.MEDICINE_TYPE)}</span></td>
-        <td>
-          <span style="color: ${med.STOCK < 50 ? '#f87171' : '#34d399'}; font-weight: 700;">
-            ${med.STOCK} units ${med.STOCK < 50 ? '(Low)' : ''}
-          </span>
-        </td>
-        <td>₹${Number(med.PRICE).toFixed(2)}</td>
-        ${isStaff ? `
-          <td>
-            <button class="btn btn-sm btn-outline" onclick="promptStockUpdate('${escapeHtml(med.MEDICINE_NAME)}', ${med.STOCK})">
-              <i class="fa-solid fa-boxes-stacked"></i> Update Stock
-            </button>
-          </td>
-        ` : ''}
-      </tr>
-    `).join('') || '<tr><td colspan="5">Pharmacy inventory is empty.</td></tr>';
-  } catch (err) {
-    notifyUser('Failed to load pharmacy stock', 'error');
-  }
-}
-
-async function handleAddMedicine(event) {
-  event.preventDefault();
-  const medicinePayload = {
-    MEDICINE_NAME: document.getElementById('med-name').value.trim(),
-    MEDICINE_TYPE: document.getElementById('med-type').value,
-    STOCK: parseInt(document.getElementById('med-stock').value, 10),
-    PRICE: parseFloat(document.getElementById('med-price').value)
-  };
-
-  const response = await fetch('/api/pharmacy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(medicinePayload)
-  });
-  const data = await response.json();
-
-  if (response.ok) {
-    notifyUser(data.message, 'success');
-    closeModal('modal-add-medicine');
-    loadPharmacyInventory();
-    refreshDashboard();
-  } else {
-    notifyUser(data.error, 'error');
-  }
-}
-
-async function promptStockUpdate(medicineName, currentStock) {
-  const updatedUnits = prompt(`Update stock count for ${medicineName}:`, currentStock);
-  if (updatedUnits !== null && !isNaN(updatedUnits)) {
-    await fetch(`/api/pharmacy/${encodeURIComponent(medicineName)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ STOCK: parseInt(updatedUnits, 10) })
-    });
-    notifyUser(`Stock updated for ${medicineName}`, 'success');
-    loadPharmacyInventory();
-  }
-}
 
 async function loadAmbulanceFleet() {
   try {
     const response = await fetch('/api/emt');
     const fleet = await response.json();
     const tableBody = document.getElementById('emt-tbody');
-    const isStaff = activeUser.role === 'staff';
+    const isStaff = activeUser && activeUser.role === 'staff';
 
     tableBody.innerHTML = fleet.map((amb) => `
       <tr>
@@ -953,7 +1065,7 @@ async function updateAmbulanceStatus(vehicleNo, newStatus) {
 }
 
 /* --------------------------------------------------------------------------
-   10. Modal Dialogs & Helper Utilities
+   11. Modal Selectors & Helpers
    -------------------------------------------------------------------------- */
 
 function openModal(modalId) {
@@ -1023,7 +1135,7 @@ async function populateBedAllocationSelectors() {
 }
 
 async function resetDatabasePrompt() {
-  if (confirm('Reset the database with 10 fresh Doctors, 20 Patients, and Hospital Ward Beds?')) {
+  if (confirm('Reset the database with 70 Ward Beds, 10 Doctors, and 20 Patients?')) {
     const response = await fetch('/api/admin/reset', { method: 'POST' });
     const payload = await response.json();
     notifyUser(payload.message, 'success');
@@ -1031,6 +1143,7 @@ async function resetDatabasePrompt() {
     if (activeView === 'beds') loadWardBeds();
     if (activeView === 'employees') loadDoctorsRegistry();
     if (activeView === 'patients') loadPatientsRegistry();
+    if (activeView === 'pharmacy') loadPharmacyInventory();
   }
 }
 
