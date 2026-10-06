@@ -52,7 +52,7 @@ def init_db():
     """
     )
 
-    # 3. Hospital Ward Beds Layout (Theatre-style visual grid)
+    # 3. Hospital Ward Beds Layout (Exact 70 Beds Matrix)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS BEDS (
@@ -161,6 +161,19 @@ def init_db():
     """
     )
 
+    # 9. Admin & Staff Notification Activity Log
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS NOTIFICATIONS (
+            ID INTEGER PRIMARY KEY AUTOINCREMENT,
+            TYPE TEXT NOT NULL,
+            MESSAGE TEXT NOT NULL,
+            CREATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            IS_READ INTEGER DEFAULT 0
+        )
+    """
+    )
+
     conn.commit()
     seed_data(conn)
     conn.close()
@@ -247,44 +260,69 @@ def seed_data(conn):
             ],
         )
 
-    # 3. Seed Hospital Ward Beds Layout (ICU, General Ward, Emergency, Deluxe)
+    # 3. Seed Hospital Ward Beds Layout (Exact 70 Beds Matrix)
+    # ICU: 10, Emergency: 15, General: 30, Deluxe: 15
     cursor.execute("SELECT COUNT(*) FROM BEDS")
     if cursor.fetchone()[0] == 0:
+        bed_records = []
+
+        # A) ICU Ward (10 Beds)
+        for i in range(1, 11):
+            bed_id = f"ICU-{i:02d}"
+            bed_num = f"Bed {i:02d}"
+            if bed_id == "ICU-01":
+                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT001", "2026-09-24"))
+            elif bed_id == "ICU-02":
+                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT011", "2026-09-25"))
+            elif bed_id == "ICU-04":
+                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT020", "2026-09-26"))
+            elif bed_id == "ICU-10":
+                bed_records.append((bed_id, "ICU Ward", bed_num, "Maintenance", None, None))
+            else:
+                bed_records.append((bed_id, "ICU Ward", bed_num, "Available", None, None))
+
+        # B) Emergency Care (15 Beds)
+        for i in range(1, 16):
+            bed_id = f"EMG-{i:02d}"
+            bed_num = f"Bed {i:02d}"
+            if bed_id == "EMG-01":
+                bed_records.append((bed_id, "Emergency Care", bed_num, "Occupied", "PAT010", "2026-09-26"))
+            elif bed_id == "EMG-03":
+                bed_records.append((bed_id, "Emergency Care", bed_num, "Occupied", "PAT007", "2026-09-25"))
+            elif bed_id == "EMG-15":
+                bed_records.append((bed_id, "Emergency Care", bed_num, "Maintenance", None, None))
+            else:
+                bed_records.append((bed_id, "Emergency Care", bed_num, "Available", None, None))
+
+        # C) General Ward (30 Beds)
+        for i in range(1, 31):
+            bed_id = f"GEN-{i:02d}"
+            bed_num = f"Bed {i:02d}"
+            if bed_id == "GEN-01":
+                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT003", "2026-09-25"))
+            elif bed_id == "GEN-03":
+                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT012", "2026-09-26"))
+            elif bed_id == "GEN-05":
+                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT017", "2026-09-24"))
+            elif bed_id == "GEN-30":
+                bed_records.append((bed_id, "General Ward", bed_num, "Maintenance", None, None))
+            else:
+                bed_records.append((bed_id, "General Ward", bed_num, "Available", None, None))
+
+        # D) Deluxe Suite (15 Beds)
+        for i in range(1, 16):
+            bed_id = f"DLX-{i:02d}"
+            bed_num = f"Suite {100 + i}"
+            if bed_id == "DLX-01":
+                bed_records.append((bed_id, "Deluxe Suite", bed_num, "Occupied", "PAT004", "2026-09-23"))
+            elif bed_id == "DLX-02":
+                bed_records.append((bed_id, "Deluxe Suite", bed_num, "Occupied", "PAT015", "2026-09-25"))
+            else:
+                bed_records.append((bed_id, "Deluxe Suite", bed_num, "Available", None, None))
+
         cursor.executemany(
             "INSERT INTO BEDS (BED_ID, WARD_TYPE, BED_NUMBER, STATUS, PATIENT_ID, ASSIGNED_DATE) VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                # Intensive Care Unit (ICU)
-                ("ICU-01", "ICU Ward", "Bed 01", "Occupied", "PAT001", "2026-09-24"),
-                ("ICU-02", "ICU Ward", "Bed 02", "Occupied", "PAT011", "2026-09-25"),
-                ("ICU-03", "ICU Ward", "Bed 03", "Available", None, None),
-                ("ICU-04", "ICU Ward", "Bed 04", "Occupied", "PAT020", "2026-09-26"),
-                ("ICU-05", "ICU Ward", "Bed 05", "Available", None, None),
-                ("ICU-06", "ICU Ward", "Bed 06", "Maintenance", None, None),
-
-                # Emergency Care (EMG)
-                ("EMG-01", "Emergency Care", "Bed 01", "Occupied", "PAT010", "2026-09-26"),
-                ("EMG-02", "Emergency Care", "Bed 02", "Available", None, None),
-                ("EMG-03", "Emergency Care", "Bed 03", "Occupied", "PAT007", "2026-09-25"),
-                ("EMG-04", "Emergency Care", "Bed 04", "Available", None, None),
-
-                # General Medical Ward (GEN)
-                ("GEN-01", "General Ward", "Bed 01", "Occupied", "PAT003", "2026-09-25"),
-                ("GEN-02", "General Ward", "Bed 02", "Available", None, None),
-                ("GEN-03", "General Ward", "Bed 03", "Occupied", "PAT012", "2026-09-26"),
-                ("GEN-04", "General Ward", "Bed 04", "Available", None, None),
-                ("GEN-05", "General Ward", "Bed 05", "Occupied", "PAT017", "2026-09-24"),
-                ("GEN-06", "General Ward", "Bed 06", "Available", None, None),
-                ("GEN-07", "General Ward", "Bed 07", "Available", None, None),
-                ("GEN-08", "General Ward", "Bed 08", "Available", None, None),
-                ("GEN-09", "General Ward", "Bed 09", "Available", None, None),
-                ("GEN-10", "General Ward", "Bed 10", "Maintenance", None, None),
-
-                # Deluxe Private Suites (DLX)
-                ("DLX-01", "Deluxe Suite", "Suite 101", "Occupied", "PAT004", "2026-09-23"),
-                ("DLX-02", "Deluxe Suite", "Suite 102", "Occupied", "PAT015", "2026-09-25"),
-                ("DLX-03", "Deluxe Suite", "Suite 103", "Available", None, None),
-                ("DLX-04", "Deluxe Suite", "Suite 104", "Available", None, None),
-            ],
+            bed_records,
         )
 
     # 4. Seed Ambulance Fleet
@@ -370,9 +408,21 @@ def seed_data(conn):
             ],
         )
 
+    # 7. Seed Initial Notifications
+    cursor.execute("SELECT COUNT(*) FROM NOTIFICATIONS")
+    if cursor.fetchone()[0] == 0:
+        cursor.executemany(
+            "INSERT INTO NOTIFICATIONS (TYPE, MESSAGE) VALUES (?, ?)",
+            [
+                ("bed", "Patient Johnathan Doe allocated to Bed ICU-01 (Intensive Care)."),
+                ("bed", "Patient Pooja Hegde allocated to Bed ICU-04 (Trauma Care)."),
+                ("pharmacy", "System: 70 Ward beds and Pharmacy inventory operational."),
+            ],
+        )
+
     conn.commit()
 
 
 if __name__ == "__main__":
     init_db()
-    print("Database initialized and seeded with 10 Doctors, 20 Patients, and Ward Bed layout successfully.")
+    print("Database initialized and seeded with 70 Ward Beds, 10 Doctors, 20 Patients, and Notifications.")
