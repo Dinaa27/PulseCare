@@ -1,5 +1,5 @@
 /* ===================================================
-   PULSECARE+ VIBRANT & COLORFUL HOSPITAL UI SYSTEM
+   PULSECARE+ HOSPITAL MANAGEMENT SYSTEM - STYLESHEET
    =================================================== */
 
 :root {
@@ -209,6 +209,7 @@ body {
   color: #38bdf8;
 }
 
+/* Form Controls */
 .form-group {
   margin-bottom: 14px;
 }
@@ -248,6 +249,36 @@ body {
   box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2);
 }
 
+/* Password Visibility Toggle Field */
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  padding-right: 42px;
+}
+
+.btn-toggle-password {
+  position: absolute;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 14px;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-toggle-password:hover {
+  color: #38bdf8;
+}
+
 .form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -260,6 +291,7 @@ body {
   gap: 10px;
 }
 
+/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -732,6 +764,29 @@ body {
 .status-completed { background: rgba(16, 185, 129, 0.2); color: #34d399; }
 .status-occupied { background: rgba(239, 68, 68, 0.2); color: #f87171; }
 
+/* Pharmacy Patient Badges */
+.stock-badge-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stock-in {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.stock-out {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
 /* ================= THEATRE-STYLE WARD BED MAP ================= */
 .ward-legend {
   display: flex;
@@ -802,8 +857,8 @@ body {
 
 .beds-grid-theatre {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+  gap: 12px;
 }
 
 .bed-seat-card {
@@ -811,7 +866,7 @@ body {
   background: rgba(15, 23, 42, 0.8);
   border: 2px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  padding: 14px 10px;
+  padding: 12px 8px;
   text-align: center;
   cursor: pointer;
   transition: var(--transition);
@@ -824,14 +879,14 @@ body {
 }
 
 .bed-seat-card i {
-  font-size: 24px;
+  font-size: 22px;
   margin-bottom: 6px;
   display: block;
 }
 
 .bed-seat-card .bed-number {
   font-weight: 800;
-  font-size: 13px;
+  font-size: 12px;
   display: block;
 }
 
@@ -1182,5 +1237,5 @@ body {
   .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border-color); }
   .dashboard-grid-2 { grid-template-columns: 1fr; }
   .main-content { padding: 16px; }
-  .beds-grid-theatre { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  .beds-grid-theatre { grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); }
 }
