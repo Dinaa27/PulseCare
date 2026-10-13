@@ -249,7 +249,7 @@ body {
   box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2);
 }
 
-/* Password Visibility Toggle Field */
+/* Password Eye Toggle Field */
 .password-input-wrapper {
   position: relative;
   display: flex;
@@ -962,6 +962,20 @@ body {
   color: #cbd5e1;
 }
 
+/* ================= PROFILE & HEALTH RECORD SECTION ================= */
+.profile-layout-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 22px;
+}
+
+.profile-meta-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* ================= PRESCRIPTIONS GRID & CARDS ================= */
 .prescriptions-list-grid {
   display: grid;
@@ -1232,7 +1246,8 @@ body {
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 990px) {
+  .profile-layout-grid { grid-template-columns: 1fr; }
   .app-layout { flex-direction: column; }
   .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border-color); }
   .dashboard-grid-2 { grid-template-columns: 1fr; }
