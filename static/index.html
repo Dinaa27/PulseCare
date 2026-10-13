@@ -138,8 +138,12 @@
         <button class="nav-item staff-only" onclick="switchView('employees')">
           <i class="fa-solid fa-user-doctor"></i> <span>Doctors & Staff</span>
         </button>
-        <button class="nav-item" onclick="switchView('patients')">
-          <i class="fa-solid fa-hospital-user"></i> <span id="nav-patients-text">Patients</span>
+        <button class="nav-item staff-only" onclick="switchView('patients')">
+          <i class="fa-solid fa-hospital-user"></i> <span>All Patients (20)</span>
+        </button>
+        <!-- Dedicated Patient Medical Record View (Visible to Patient) -->
+        <button class="nav-item patient-only" onclick="switchView('profile')">
+          <i class="fa-solid fa-id-card-clip"></i> <span>My Medical Profile</span>
         </button>
         <button class="nav-item" onclick="switchView('consultations')">
           <i class="fa-solid fa-calendar-check"></i> <span>Consultations</span>
@@ -179,6 +183,7 @@
           <button class="btn btn-outline staff-only" onclick="resetDatabasePrompt()">
             <i class="fa-solid fa-rotate-left"></i> Reset Demo Data
           </button>
+          <!-- Top-Right Action Button: ONLY visible on Dashboard and Consultations -->
           <div id="top-quick-action-container">
             <button class="btn btn-primary" onclick="openNewActionModal()">
               <i class="fa-solid fa-plus"></i> <span id="quick-action-text">Book Appointment</span>
@@ -196,9 +201,9 @@
             <div class="stat-card card-gradient-emerald">
               <div class="stat-icon"><i class="fa-solid fa-calendar-check"></i></div>
               <div class="stat-content">
-                <p>Appointments</p>
+                <p id="stat-consultations-title">Appointments</p>
                 <h3 id="stat-consultations">0</h3>
-                <span class="stat-meta"><i class="fa-solid fa-clock"></i> Active schedule</span>
+                <span class="stat-meta" id="stat-consultations-meta"><i class="fa-solid fa-clock"></i> Scheduled status</span>
               </div>
             </div>
             <div class="stat-card card-gradient-cyan">
@@ -206,19 +211,19 @@
               <div class="stat-content">
                 <p>Available Beds</p>
                 <h3 id="stat-available-beds">0</h3>
-                <span class="stat-meta"><i class="fa-solid fa-hospital"></i> Total ready</span>
+                <span class="stat-meta"><i class="fa-solid fa-hospital"></i> 70 Total beds</span>
               </div>
             </div>
-            <!-- Total Patients: Only visible to Doctors and Staff -->
+            <!-- Total Registered Patients: ONLY visible to Doctors and Staff -->
             <div class="stat-card card-gradient-rose staff-only">
               <div class="stat-icon"><i class="fa-solid fa-hospital-user"></i></div>
               <div class="stat-content">
                 <p>Total Registered Patients</p>
                 <h3 id="stat-patients">0</h3>
-                <span class="stat-meta"><i class="fa-solid fa-shield-halved"></i> Clinical Records</span>
+                <span class="stat-meta"><i class="fa-solid fa-shield-halved"></i> 20 Database Records</span>
               </div>
             </div>
-            <!-- Medical Staff: Only visible to Staff -->
+            <!-- Medical Staff: ONLY visible to Staff -->
             <div class="stat-card card-gradient-purple staff-only">
               <div class="stat-icon"><i class="fa-solid fa-user-doctor"></i></div>
               <div class="stat-content">
@@ -281,12 +286,12 @@
           </div>
         </section>
 
-        <!-- 2. WARD BED VISUALIZATION MAP (70 Beds) -->
+        <!-- 2. WARD BED VISUALIZATION MAP (70 Beds + 1-Bed Rule) -->
         <section id="view-beds" class="view-panel">
           <div class="table-card glass-panel">
             <div class="ward-legend">
               <span style="font-weight: 700; color: #38bdf8;"><i class="fa-solid fa-map"></i> Bed Status Legend:</span>
-              <div class="legend-item"><div class="legend-box available"></div> Available (Click to Book / Allocate)</div>
+              <div class="legend-item"><div class="legend-box available"></div> Available (Click to Reserve / Allocate)</div>
               <div class="legend-item"><div class="legend-box occupied"></div> Occupied (Hover to view Patient)</div>
               <div class="legend-item"><div class="legend-box maintenance"></div> Sanitization / Maintenance</div>
               <button class="btn btn-sm btn-primary staff-only" style="margin-left: auto;" onclick="openModal('modal-assign-bed')">
@@ -330,7 +335,7 @@
           </div>
         </section>
 
-        <!-- 4. PATIENTS VIEW (20 Patients) -->
+        <!-- 4. PATIENTS VIEW (20 Patients - Staff Only) -->
         <section id="view-patients" class="view-panel">
           <div class="table-card glass-panel">
             <div class="table-header-bar">
@@ -338,7 +343,6 @@
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input type="text" placeholder="Search patient name, issue, PID..." oninput="filterTable('patients-table', this.value)" />
               </div>
-              <!-- Register Patient button ONLY visible to staff -->
               <button class="btn btn-primary staff-only" onclick="openModal('modal-add-patient')">
                 <i class="fa-solid fa-plus"></i> Register Patient
               </button>
@@ -349,12 +353,13 @@
                   <tr>
                     <th>PID</th>
                     <th>Patient Name</th>
-                    <th>Medical Issue / Symptoms</th>
+                    <th>Medical Issue / History</th>
+                    <th>Blood / Allergies</th>
                     <th>Age / Gender</th>
-                    <th>Fees</th>
+                    <th>Bed</th>
                     <th>Mobile</th>
                     <th>Bill No</th>
-                    <th class="staff-only">Actions</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="patients-tbody"></tbody>
@@ -363,7 +368,113 @@
           </div>
         </section>
 
-        <!-- 5. CONSULTATIONS VIEW -->
+        <!-- 5. DEDICATED PATIENT MEDICAL PROFILE & HEALTH RECORD -->
+        <section id="view-profile" class="view-panel">
+          <div class="profile-layout-grid">
+            <!-- Personal & Clinical Health Record Editor -->
+            <div class="card glass-panel">
+              <div class="card-head">
+                <h3><i class="fa-solid fa-notes-medical"></i> My Health Profile & Clinical Record</h3>
+                <span id="profile-pid-badge" class="badge-role">PAT001</span>
+              </div>
+              <form id="profile-form" onsubmit="handleUpdateProfile(event)">
+                <div class="form-grid-2">
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-user"></i> Full Legal Name</label>
+                    <input type="text" id="prof-name" required />
+                  </div>
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-phone"></i> Emergency Contact Mobile</label>
+                    <input type="tel" id="prof-mobile" required />
+                  </div>
+                </div>
+
+                <div class="form-grid-3">
+                  <div class="form-group">
+                    <label>Age</label>
+                    <input type="number" id="prof-age" required />
+                  </div>
+                  <div class="form-group">
+                    <label>Gender</label>
+                    <select id="prof-gender">
+                      <option>Male</option>
+                      <option>Female</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Blood Group</label>
+                    <select id="prof-blood">
+                      <option>Unknown</option>
+                      <option>A+</option>
+                      <option>A-</option>
+                      <option>B+</option>
+                      <option>B-</option>
+                      <option>O+</option>
+                      <option>O-</option>
+                      <option>AB+</option>
+                      <option>AB-</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label><i class="fa-solid fa-triangle-exclamation"></i> Known Drug / Environmental Allergies</label>
+                  <input type="text" id="prof-allergies" placeholder="e.g. Penicillin, Sulfa drugs, Peanuts" />
+                </div>
+
+                <div class="form-group">
+                  <label><i class="fa-solid fa-stethoscope"></i> Current Chief Medical Concern / Symptoms</label>
+                  <input type="text" id="prof-issue" placeholder="e.g. Chest tightness, persistent fever" required />
+                </div>
+
+                <div class="form-group">
+                  <label><i class="fa-solid fa-file-medical"></i> Past Medical & Surgical History</label>
+                  <textarea id="prof-history" rows="2" placeholder="e.g. Hypertension 5 yrs, Knee surgery 2024"></textarea>
+                </div>
+
+                <div class="profile-meta-info" style="margin-bottom: 16px;">
+                  <span id="prof-bed-info" class="badge-role" style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 12px; padding: 6px 12px;">
+                    <i class="fa-solid fa-bed"></i> Bed: Not currently admitted
+                  </span>
+                  <span id="prof-bill-info" class="badge-role" style="font-size: 12px; padding: 6px 12px; margin-left: 8px;">
+                    Bill No: N/A
+                  </span>
+                </div>
+
+                <button type="submit" class="btn btn-gradient btn-block">
+                  <i class="fa-solid fa-floppy-disk"></i> Save & Update Health Record
+                </button>
+              </form>
+            </div>
+
+            <!-- Medicine Purchase History Table embedded inside Profile -->
+            <div class="card glass-panel">
+              <div class="card-head">
+                <h3><i class="fa-solid fa-receipt"></i> Medicine Purchase History</h3>
+                <span class="badge-role" style="background: rgba(14, 165, 233, 0.2); color: #38bdf8;">Receipt Log</span>
+              </div>
+              <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                <table class="modern-table">
+                  <thead>
+                    <tr>
+                      <th>Order ID</th>
+                      <th>Medicine Name</th>
+                      <th>Qty</th>
+                      <th>Total Paid</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody id="profile-purchases-tbody">
+                    <tr><td colspan="5" class="text-muted">Loading purchase history...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. CONSULTATIONS VIEW -->
         <section id="view-consultations" class="view-panel">
           <div class="table-card glass-panel">
             <div class="table-header-bar">
@@ -395,7 +506,7 @@
           </div>
         </section>
 
-        <!-- 6. PRESCRIPTIONS VIEW -->
+        <!-- 7. PRESCRIPTIONS VIEW -->
         <section id="view-prescriptions" class="view-panel">
           <div class="table-card glass-panel">
             <div class="table-header-bar">
@@ -411,7 +522,7 @@
           </div>
         </section>
 
-        <!-- 7. PHARMACY VIEW (Role-Aware Stock & Purchase) -->
+        <!-- 8. PHARMACY VIEW (Stock & Orders) -->
         <section id="view-pharmacy" class="view-panel">
           <div class="table-card glass-panel">
             <div class="table-header-bar">
@@ -437,10 +548,34 @@
                 <tbody id="pharmacy-tbody"></tbody>
               </table>
             </div>
+
+            <!-- Master Hospital Purchase Logs (Staff Only) -->
+            <div class="staff-only" style="margin-top: 32px;">
+              <div class="card-head">
+                <h3><i class="fa-solid fa-file-invoice-dollar"></i> Hospital-Wide Medicine Purchase Log</h3>
+              </div>
+              <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+                <table class="modern-table">
+                  <thead>
+                    <tr>
+                      <th>Order ID</th>
+                      <th>Patient Name</th>
+                      <th>Medicine</th>
+                      <th>Qty</th>
+                      <th>Total Amount</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-purchases-tbody">
+                    <tr><td colspan="6">Loading master purchase log...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
-        <!-- 8. EMT / AMBULANCE FLEET -->
+        <!-- 9. EMT / AMBULANCE FLEET -->
         <section id="view-emt" class="view-panel">
           <div class="table-card glass-panel">
             <div class="table-header-bar">
@@ -508,7 +643,7 @@
     </div>
   </div>
 
-  <!-- Modal: Allocate Bed (Staff Only) -->
+  <!-- Modal: Staff Allocate Bed -->
   <div id="modal-assign-bed" class="modal-backdrop hidden">
     <div class="modal-card glass-panel">
       <div class="modal-head">
@@ -529,7 +664,7 @@
     </div>
   </div>
 
-  <!-- Modal: Download / Print Prescription -->
+  <!-- Modal: Download / Print Prescription Slip -->
   <div id="modal-download-prescription" class="modal-backdrop hidden">
     <div class="modal-card glass-panel modal-lg">
       <div class="modal-head">
