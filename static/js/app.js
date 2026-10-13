@@ -6,8 +6,10 @@ let activeUser = null;
 let activeView = 'dashboard';
 let hospitalBedsCache = [];
 let pharmacyInventoryCache = [];
+let selectedMedPrice = 0;
+let selectedMedStock = 0;
 
-// Initialize app when DOM is fully loaded
+// Initialize application on DOM ready
 document.addEventListener('DOMContentLoaded', async () => {
   await verifySessionState();
   if (activeUser) {
@@ -23,7 +25,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 function togglePasswordVisibility(inputFieldId, eyeIconId) {
   const passwordInput = document.getElementById(inputFieldId);
   const eyeIcon = document.getElementById(eyeIconId);
-
   if (!passwordInput || !eyeIcon) return;
 
   if (passwordInput.type === 'password') {
@@ -174,20 +175,22 @@ function applyRolePermissions() {
     }
   });
 
-  const patientNavText = document.getElementById('nav-patients-text');
-  if (patientNavText) {
-    patientNavText.textContent = isStaff ? 'All Patients (20)' : 'My Medical Profile';
-  }
+  document.querySelectorAll('.patient-only').forEach((elem) => {
+    if (!isStaff) {
+      elem.classList.remove('hidden');
+    } else {
+      elem.classList.add('hidden');
+    }
+  });
 }
 
 /* --------------------------------------------------------------------------
-   2. View Routing & Top Button Visibility Control
+   2. View Routing & Top Action Button Visibility Control
    -------------------------------------------------------------------------- */
 
 function switchView(targetViewKey) {
   activeView = targetViewKey;
 
-  // Update Sidebar Active States
   document.querySelectorAll('.sidebar-nav .nav-item').forEach((button) => {
     button.classList.remove('active');
   });
@@ -196,12 +199,11 @@ function switchView(targetViewKey) {
     .find((btn) => btn.getAttribute('onclick')?.includes(targetViewKey));
   if (activeNavButton) activeNavButton.classList.add('active');
 
-  // Toggle View Panels
   document.querySelectorAll('.view-panel').forEach((panel) => panel.classList.remove('active'));
   const targetPanel = document.getElementById(`view-${targetViewKey}`);
   if (targetPanel) targetPanel.classList.add('active');
 
-  // Control Top-Right "Book Consultation" Button: ONLY shown on Dashboard & Consultations
+  // Top Action Button: ONLY displayed on Dashboard & Consultations
   const topActionContainer = document.getElementById('top-quick-action-container');
   if (topActionContainer) {
     if (targetViewKey === 'dashboard' || targetViewKey === 'consultations') {
@@ -215,10 +217,11 @@ function switchView(targetViewKey) {
     dashboard: ['Hospital Overview', 'Real-time clinical metrics & status'],
     beds: ['Hospital Ward Bed Matrix (70 Beds)', 'Live theatre-style visualization of admitted patients & occupancy'],
     employees: ['Medical Specialists & Doctors', 'Registry of 10 clinical practitioners and specialists'],
-    patients: [activeUser.role === 'staff' ? 'Patient Database (20 Records)' : 'My Medical Profile', 'Inpatient and outpatient clinical histories'],
+    patients: ['Patient Database (20 Records)', 'Master hospital patient registry and billing details'],
+    profile: ['My Health Record & Medical Profile', 'Personal medical records, diagnosis, and medicine purchase history'],
     consultations: ['Consultation Appointments', 'Scheduled clinical appointments & status'],
     prescriptions: ['Digital Prescriptions & Rx Slip', 'Doctor diagnoses, dosage plans & printable slips'],
-    pharmacy: ['Pharmacy Stock & Formulations', 'Inventory levels, rates & instant restock/purchase'],
+    pharmacy: ['Pharmacy Stock & Formulations', 'Inventory levels, rates & patient purchases'],
     emt: ['Emergency Medical Fleet (EMT)', 'Ambulance readiness & emergency hotline']
   };
 
@@ -231,6 +234,7 @@ function switchView(targetViewKey) {
   if (targetViewKey === 'beds') loadWardBeds();
   if (targetViewKey === 'employees') loadDoctorsRegistry();
   if (targetViewKey === 'patients') loadPatientsRegistry();
+  if (targetViewKey === 'profile') loadPatientProfile();
   if (targetViewKey === 'consultations') loadConsultationsRegistry();
   if (targetViewKey === 'prescriptions') loadPrescriptionsRegistry();
   if (targetViewKey === 'pharmacy') loadPharmacyInventory();
@@ -249,6 +253,13 @@ async function refreshDashboard() {
   try {
     const statsResponse = await fetch('/api/dashboard/stats');
     const metrics = await statsResponse.json();
+
+    const isPatient = activeUser && activeUser.role === 'patient';
+    const apptTitle = document.getElementById('stat-consultations-title');
+    const apptMeta = document.getElementById('stat-consultations-meta');
+
+    if (apptTitle) apptTitle.textContent = isPatient ? 'My Appointments' : 'Total Hospital Appointments';
+    if (apptMeta) apptMeta.innerHTML = isPatient ? '<i class="fa-solid fa-user-check"></i> Booked by you' : '<i class="fa-solid fa-hospital"></i> Hospital-wide';
 
     document.getElementById('stat-consultations').textContent = metrics.scheduled_consultations || 0;
     document.getElementById('stat-available-beds').textContent = metrics.available_beds || 0;
@@ -285,7 +296,7 @@ async function refreshDashboard() {
 }
 
 /* --------------------------------------------------------------------------
-   4. Theatre-Style Hospital Ward Bed Map (70 Beds + Patient Booking)
+   4. Theatre-Style Hospital Ward Bed Map (70 Beds + 1-Bed Limit)
    -------------------------------------------------------------------------- */
 
 async function loadWardBeds() {
@@ -324,7 +335,6 @@ function renderBedsMatrix(beds) {
           ${wardBeds.map((bed) => {
             const stateClass = `state-${bed.STATUS.toLowerCase()}`;
             const isOccupied = bed.STATUS === 'Occupied';
-            const isAvailable = bed.STATUS === 'Available';
 
             return `
               <div class="bed-seat-card ${stateClass}" onclick="handleBedCardClick('${bed.BED_ID}')">
@@ -336,9 +346,10 @@ function renderBedsMatrix(beds) {
                   <div class="bed-tooltip">
                     <h4><i class="fa-solid fa-user"></i> ${escapeHtml(bed.PATIENT_NAME || 'Admitted Patient')}</h4>
                     <p><strong>Age/Gender:</strong> ${bed.PATIENT_AGE || '--'} yrs / ${escapeHtml(bed.PATIENT_GENDER || '--')}</p>
-                    <p><strong>Condition:</strong> ${escapeHtml(bed.PATIENT_ISSUE || 'Under observation')}</p>
+                    <p><strong>Diagnosis:</strong> ${escapeHtml(bed.PATIENT_ISSUE || 'Under observation')}</p>
+                    <p><strong>Blood Group:</strong> ${escapeHtml(bed.BLOOD_GROUP || 'Unknown')}</p>
                     <p><strong>Admitted:</strong> ${escapeHtml(bed.ASSIGNED_DATE || 'Recent')}</p>
-                    ${isStaff ? '<p style="color: #38bdf8; font-size: 11px; margin-top: 4px; font-weight: bold;">Click to Discharge Bed</p>' : ''}
+                    ${isStaff ? '<p style="color: #38bdf8; font-size: 11px; margin-top: 4px; font-weight: bold;">Click to Discharge / Free Bed</p>' : ''}
                   </div>
                 ` : `
                   <div class="bed-tooltip">
@@ -362,7 +373,7 @@ async function handleBedCardClick(bedId) {
   const bed = hospitalBedsCache.find((b) => b.BED_ID === bedId);
   if (!bed) return;
 
-  // Patient Bed Booking Flow
+  // Patient Bed Booking Flow (Strict 1 Bed Check)
   if (activeUser.role === 'patient') {
     if (bed.STATUS === 'Available') {
       if (confirm(`Would you like to reserve Bed ${bed.BED_NUMBER} in ${bed.WARD_TYPE}?`)) {
@@ -376,23 +387,23 @@ async function handleBedCardClick(bedId) {
           if (!response.ok) throw new Error(payload.error || 'Failed to reserve bed');
 
           notifyUser(payload.message, 'success');
-          loadWardBeds();
-          refreshDashboard();
+          await loadWardBeds();
+          await refreshDashboard();
         } catch (err) {
           notifyUser(err.message, 'error');
         }
       }
     } else if (bed.STATUS === 'Occupied') {
-      notifyUser(`Bed ${bed.BED_NUMBER} is currently occupied by patient ${bed.PATIENT_NAME}.`, 'info');
+      notifyUser(`Bed ${bed.BED_NUMBER} is occupied by ${bed.PATIENT_NAME}.`, 'info');
     } else {
-      notifyUser(`Bed ${bed.BED_NUMBER} is undergoing maintenance.`, 'info');
+      notifyUser(`Bed ${bed.BED_NUMBER} is currently under maintenance.`, 'info');
     }
     return;
   }
 
   // Staff Bed Actions (Discharge or Allocate)
   if (bed.STATUS === 'Occupied') {
-    if (confirm(`Discharge patient ${bed.PATIENT_NAME} from ${bed.BED_NUMBER} (${bed.WARD_TYPE})?`)) {
+    if (confirm(`Discharge patient ${bed.PATIENT_NAME} from ${bed.BED_NUMBER} (${bed.WARD_TYPE}) and make bed available?`)) {
       const response = await fetch('/api/beds/vacate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -401,8 +412,8 @@ async function handleBedCardClick(bedId) {
       const data = await response.json();
       if (response.ok) {
         notifyUser(data.message, 'success');
-        loadWardBeds();
-        refreshDashboard();
+        await loadWardBeds();
+        await refreshDashboard();
       } else {
         notifyUser(data.error, 'error');
       }
@@ -432,15 +443,90 @@ async function handleAssignBed(event) {
 
     notifyUser(payload.message, 'success');
     closeModal('modal-assign-bed');
-    loadWardBeds();
-    refreshDashboard();
+    await loadWardBeds();
+    await refreshDashboard();
   } catch (err) {
     notifyUser(err.message, 'error');
   }
 }
 
 /* --------------------------------------------------------------------------
-   5. Pharmacy Stock & Patient Medicine Purchasing
+   5. Dedicated Patient Medical Profile & Health Record Update
+   -------------------------------------------------------------------------- */
+
+async function loadPatientProfile() {
+  try {
+    const response = await fetch('/api/patient/profile');
+    const profile = await response.json();
+    if (!response.ok) throw new Error(profile.error || 'Failed to load profile');
+
+    document.getElementById('prof-name').value = profile.NAME || '';
+    document.getElementById('prof-mobile').value = profile.MOBILE_NO || '';
+    document.getElementById('prof-age').value = profile.AGE || '';
+    document.getElementById('prof-gender').value = profile.GENDER || 'Male';
+    document.getElementById('prof-blood').value = profile.BLOOD_GROUP || 'Unknown';
+    document.getElementById('prof-allergies').value = profile.ALLERGIES || '';
+    document.getElementById('prof-issue').value = profile.ISSUE || '';
+    document.getElementById('prof-history').value = profile.MEDICAL_HISTORY || '';
+
+    const pidBadge = document.getElementById('profile-pid-badge');
+    if (pidBadge) pidBadge.textContent = profile.PID || 'PAT';
+
+    const bedBadge = document.getElementById('prof-bed-info');
+    if (bedBadge) {
+      if (profile.BED_NUMBER) {
+        bedBadge.innerHTML = `<i class="fa-solid fa-bed"></i> Bed: ${profile.BED_NUMBER} (${profile.WARD_TYPE})`;
+        bedBadge.style.background = 'rgba(239, 68, 68, 0.2)';
+        bedBadge.style.color = '#f87171';
+      } else {
+        bedBadge.innerHTML = `<i class="fa-solid fa-bed"></i> Bed: Not currently admitted`;
+        bedBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+        bedBadge.style.color = '#34d399';
+      }
+    }
+
+    const billBadge = document.getElementById('prof-bill-info');
+    if (billBadge) billBadge.textContent = `Bill No: ${profile.BILL_NO || 'N/A'}`;
+
+    // Load Medicine Purchase History directly inside the profile view
+    await loadPurchaseHistory('profile-purchases-tbody');
+  } catch (err) {
+    notifyUser(err.message, 'error');
+  }
+}
+
+async function handleUpdateProfile(event) {
+  event.preventDefault();
+  const profilePayload = {
+    NAME: document.getElementById('prof-name').value.trim(),
+    MOBILE_NO: document.getElementById('prof-mobile').value.trim(),
+    AGE: parseInt(document.getElementById('prof-age').value, 10),
+    GENDER: document.getElementById('prof-gender').value,
+    BLOOD_GROUP: document.getElementById('prof-blood').value,
+    ALLERGIES: document.getElementById('prof-allergies').value.trim(),
+    ISSUE: document.getElementById('prof-issue').value.trim(),
+    MEDICAL_HISTORY: document.getElementById('prof-history').value.trim()
+  };
+
+  try {
+    const response = await fetch('/api/patient/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profilePayload)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to update profile');
+
+    notifyUser(payload.message, 'success');
+    activeUser.name = profilePayload.NAME;
+    document.getElementById('display-user-name').textContent = profilePayload.NAME;
+  } catch (err) {
+    notifyUser(err.message, 'error');
+  }
+}
+
+/* --------------------------------------------------------------------------
+   6. Pharmacy Stock & Patient Medicine Purchasing
    -------------------------------------------------------------------------- */
 
 async function loadPharmacyInventory() {
@@ -483,13 +569,14 @@ async function loadPharmacyInventory() {
         </tr>
       `;
     }).join('') || '<tr><td colspan="5">Pharmacy catalog is empty.</td></tr>';
+
+    if (isStaff) {
+      await loadPurchaseHistory('admin-purchases-tbody');
+    }
   } catch (err) {
     notifyUser('Failed to load pharmacy catalog', 'error');
   }
 }
-
-let selectedMedPrice = 0;
-let selectedMedStock = 0;
 
 function openBuyMedicineModal(medicineName, price, stock) {
   selectedMedPrice = price;
@@ -536,10 +623,39 @@ async function handleBuyMedicine(event) {
 
     notifyUser(payload.message, 'success');
     closeModal('modal-buy-medicine');
-    loadPharmacyInventory();
-    refreshDashboard();
+    await loadPharmacyInventory();
+    await refreshDashboard();
   } catch (err) {
     notifyUser(err.message, 'error');
+  }
+}
+
+async function loadPurchaseHistory(targetTbodyId) {
+  const tbody = document.getElementById(targetTbodyId);
+  if (!tbody) return;
+
+  try {
+    const response = await fetch('/api/pharmacy/purchases');
+    const purchases = await response.json();
+
+    if (!purchases || purchases.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted">No purchase records found.</td></tr>';
+      return;
+    }
+
+    const isStaffTable = targetTbodyId === 'admin-purchases-tbody';
+    tbody.innerHTML = purchases.map((item) => `
+      <tr>
+        <td><code>${escapeHtml(item.PURCHASE_ID)}</code></td>
+        ${isStaffTable ? `<td><strong>${escapeHtml(item.PATIENT_NAME)}</strong></td>` : ''}
+        <td><strong>${escapeHtml(item.MEDICINE_NAME)}</strong></td>
+        <td>${item.QUANTITY}</td>
+        <td><strong style="color: #34d399;">₹${Number(item.TOTAL_PRICE).toFixed(2)}</strong></td>
+        <td><small>${escapeHtml(item.PURCHASE_DATE)}</small></td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Failed to load purchase history.</td></tr>';
   }
 }
 
@@ -562,8 +678,8 @@ async function handleAddMedicine(event) {
   if (response.ok) {
     notifyUser(data.message, 'success');
     closeModal('modal-add-medicine');
-    loadPharmacyInventory();
-    refreshDashboard();
+    await loadPharmacyInventory();
+    await refreshDashboard();
   } else {
     notifyUser(data.error, 'error');
   }
@@ -578,12 +694,12 @@ async function promptStockUpdate(medicineName, currentStock) {
       body: JSON.stringify({ STOCK: parseInt(updatedUnits, 10) })
     });
     notifyUser(`Stock updated for ${medicineName}`, 'success');
-    loadPharmacyInventory();
+    await loadPharmacyInventory();
   }
 }
 
 /* --------------------------------------------------------------------------
-   6. Doctors & Medical Staff Registry (10 Doctors)
+   7. Doctors & Medical Staff Registry (10 Doctors)
    -------------------------------------------------------------------------- */
 
 async function loadDoctorsRegistry() {
@@ -634,8 +750,8 @@ async function handleAddEmployee(event) {
   if (response.ok) {
     notifyUser(data.message, 'success');
     closeModal('modal-add-employee');
-    loadDoctorsRegistry();
-    refreshDashboard();
+    await loadDoctorsRegistry();
+    await refreshDashboard();
   } else {
     notifyUser(data.error, 'error');
   }
@@ -647,8 +763,8 @@ async function deleteDoctorRecord(eid) {
     const data = await response.json();
     if (response.ok) {
       notifyUser(data.message, 'success');
-      loadDoctorsRegistry();
-      refreshDashboard();
+      await loadDoctorsRegistry();
+      await refreshDashboard();
     } else {
       notifyUser(data.error, 'error');
     }
@@ -656,7 +772,7 @@ async function deleteDoctorRecord(eid) {
 }
 
 /* --------------------------------------------------------------------------
-   7. Patients Database (20 Patients)
+   8. Patients Database (20 Records - Staff Only)
    -------------------------------------------------------------------------- */
 
 async function loadPatientsRegistry() {
@@ -664,26 +780,24 @@ async function loadPatientsRegistry() {
     const response = await fetch('/api/patients');
     const patientsList = await response.json();
     const tableBody = document.getElementById('patients-tbody');
-    const isStaff = activeUser && activeUser.role === 'staff';
 
     tableBody.innerHTML = patientsList.map((pat) => `
       <tr>
         <td><code>${escapeHtml(pat.PID)}</code></td>
         <td><strong>${escapeHtml(pat.NAME)}</strong></td>
         <td>${escapeHtml(pat.ISSUE || 'General Checkup')}</td>
+        <td>${escapeHtml(pat.BLOOD_GROUP || 'Unknown')} / <small>${escapeHtml(pat.ALLERGIES || 'None')}</small></td>
         <td>${pat.AGE || '--'} / ${escapeHtml(pat.GENDER || '--')}</td>
-        <td>₹${Number(pat.FEES || 0).toLocaleString()}</td>
+        <td>${pat.BED_NUMBER ? `<span class="badge-role" style="background: rgba(239,68,68,0.2); color: #f87171;">${pat.BED_NUMBER} (${pat.WARD_TYPE})</span>` : '<span class="text-muted">None</span>'}</td>
         <td><a href="tel:${pat.MOBILE_NO}" style="color: #38bdf8; text-decoration: none;"><i class="fa-solid fa-phone"></i> ${escapeHtml(pat.MOBILE_NO || 'N/A')}</a></td>
         <td><span class="badge-role">${escapeHtml(pat.BILL_NO || 'N/A')}</span></td>
-        ${isStaff ? `
-          <td>
-            <button class="btn-danger-sm" onclick="deletePatientRecord('${pat.PID}')" title="Delete record">
-              <i class="fa-solid fa-trash"></i>
-            </button>
-          </td>
-        ` : ''}
+        <td>
+          <button class="btn-danger-sm" onclick="deletePatientRecord('${pat.PID}')" title="Delete record">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
       </tr>
-    `).join('') || '<tr><td colspan="8">No patient records available.</td></tr>';
+    `).join('') || '<tr><td colspan="9">No patient records available.</td></tr>';
   } catch (err) {
     notifyUser('Failed to load patient database', 'error');
   }
@@ -710,8 +824,8 @@ async function handleAddPatient(event) {
   if (response.ok) {
     notifyUser(data.message, 'success');
     closeModal('modal-add-patient');
-    loadPatientsRegistry();
-    refreshDashboard();
+    await loadPatientsRegistry();
+    await refreshDashboard();
   } else {
     notifyUser(data.error, 'error');
   }
@@ -723,8 +837,8 @@ async function deletePatientRecord(pid) {
     const data = await response.json();
     if (response.ok) {
       notifyUser(data.message, 'success');
-      loadPatientsRegistry();
-      refreshDashboard();
+      await loadPatientsRegistry();
+      await refreshDashboard();
     } else {
       notifyUser(data.error, 'error');
     }
@@ -732,7 +846,7 @@ async function deletePatientRecord(pid) {
 }
 
 /* --------------------------------------------------------------------------
-   8. Consultations & Prescribe Flow
+   9. Consultations & Prescribe Flow
    -------------------------------------------------------------------------- */
 
 async function loadConsultationsRegistry() {
@@ -787,8 +901,8 @@ async function handleBookConsultation(event) {
   if (response.ok) {
     notifyUser(data.message, 'success');
     closeModal('modal-add-consultation');
-    loadConsultationsRegistry();
-    refreshDashboard();
+    await loadConsultationsRegistry();
+    await refreshDashboard();
   } else {
     notifyUser(data.error, 'error');
   }
@@ -869,7 +983,7 @@ async function handleCreatePrescription(event) {
 }
 
 /* --------------------------------------------------------------------------
-   9. Prescriptions List & Download/Print Rx Slip
+   10. Prescriptions List & Download/Print Rx Slip
    -------------------------------------------------------------------------- */
 
 async function loadPrescriptionsRegistry() {
@@ -988,7 +1102,7 @@ async function openPrescriptionSlip(prescriptionId) {
 }
 
 /* --------------------------------------------------------------------------
-   10. Emergency Ambulance Fleet
+   11. Emergency Ambulance Fleet
    -------------------------------------------------------------------------- */
 
 async function loadAmbulanceFleet() {
@@ -1041,8 +1155,8 @@ async function handleAddEmt(event) {
   if (response.ok) {
     notifyUser(data.message, 'success');
     closeModal('modal-add-emt');
-    loadAmbulanceFleet();
-    refreshDashboard();
+    await loadAmbulanceFleet();
+    await refreshDashboard();
   } else {
     notifyUser(data.error, 'error');
   }
@@ -1057,7 +1171,7 @@ async function updateAmbulanceStatus(vehicleNo, newStatus) {
     });
     if (response.ok) {
       notifyUser(`Ambulance ${vehicleNo} marked as ${newStatus}`, 'success');
-      refreshDashboard();
+      await refreshDashboard();
     }
   } catch (err) {
     notifyUser('Failed to update ambulance status', 'error');
@@ -1065,7 +1179,7 @@ async function updateAmbulanceStatus(vehicleNo, newStatus) {
 }
 
 /* --------------------------------------------------------------------------
-   11. Modal Selectors & Helpers
+   12. Modal Selectors & Helpers
    -------------------------------------------------------------------------- */
 
 function openModal(modalId) {
@@ -1139,11 +1253,12 @@ async function resetDatabasePrompt() {
     const response = await fetch('/api/admin/reset', { method: 'POST' });
     const payload = await response.json();
     notifyUser(payload.message, 'success');
-    refreshDashboard();
-    if (activeView === 'beds') loadWardBeds();
-    if (activeView === 'employees') loadDoctorsRegistry();
-    if (activeView === 'patients') loadPatientsRegistry();
-    if (activeView === 'pharmacy') loadPharmacyInventory();
+    await refreshDashboard();
+    if (activeView === 'beds') await loadWardBeds();
+    if (activeView === 'employees') await loadDoctorsRegistry();
+    if (activeView === 'patients') await loadPatientsRegistry();
+    if (activeView === 'pharmacy') await loadPharmacyInventory();
+    if (activeView === 'profile') await loadPatientProfile();
   }
 }
 
