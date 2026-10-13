@@ -20,7 +20,7 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
 
-    # 1. Employees (10 Doctors & Clinical Specialists)
+    # 1. Employees (10 Specialist Doctors)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS EMPLOYEES (
@@ -35,7 +35,7 @@ def init_db():
     """
     )
 
-    # 2. Patients (20 Patient Records)
+    # 2. Patients (20 Clinical Records + Extended Health Data)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS PATIENTS (
@@ -47,7 +47,10 @@ def init_db():
             FEES REAL DEFAULT 0,
             MOBILE_NO TEXT,
             BILL_NO TEXT UNIQUE,
-            USERNAME TEXT
+            USERNAME TEXT,
+            BLOOD_GROUP TEXT DEFAULT 'Unknown',
+            ALLERGIES TEXT DEFAULT 'None reported',
+            MEDICAL_HISTORY TEXT DEFAULT 'No prior chronic conditions'
         )
     """
     )
@@ -101,7 +104,23 @@ def init_db():
     """
     )
 
-    # 6. User Authentication & Role Access
+    # 6. Patient Medicine Purchase History
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS MEDICINE_PURCHASES (
+            PURCHASE_ID TEXT PRIMARY KEY,
+            PATIENT_ID TEXT NOT NULL,
+            PATIENT_NAME TEXT NOT NULL,
+            MEDICINE_NAME TEXT NOT NULL,
+            QUANTITY INTEGER NOT NULL CHECK (QUANTITY > 0),
+            TOTAL_PRICE REAL NOT NULL,
+            PURCHASE_DATE TEXT NOT NULL,
+            USERNAME TEXT
+        )
+    """
+    )
+
+    # 7. User Authentication & Role Access
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS USER_DATA (
@@ -115,7 +134,7 @@ def init_db():
     """
     )
 
-    # 7. Consultations
+    # 8. Consultations
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS CONSULTATION (
@@ -132,7 +151,7 @@ def init_db():
     """
     )
 
-    # 8. Digital Prescriptions
+    # 9. Digital Prescriptions
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS PRESCRIPTION (
@@ -161,7 +180,7 @@ def init_db():
     """
     )
 
-    # 9. Admin & Staff Notification Activity Log
+    # 10. Admin Notification Feed
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS NOTIFICATIONS (
@@ -231,36 +250,39 @@ def seed_data(conn):
             ],
         )
 
-    # 2. Seed 20 Patients
+    # 2. Seed 20 Patients with Clinical Health Records
     cursor.execute("SELECT COUNT(*) FROM PATIENTS")
     if cursor.fetchone()[0] == 0:
         cursor.executemany(
-            "INSERT INTO PATIENTS (PID, NAME, ISSUE, AGE, GENDER, FEES, MOBILE_NO, BILL_NO, USERNAME) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            """INSERT INTO PATIENTS (
+                PID, NAME, ISSUE, AGE, GENDER, FEES, MOBILE_NO, BILL_NO, USERNAME,
+                BLOOD_GROUP, ALLERGIES, MEDICAL_HISTORY
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
-                ("PAT001", "Johnathan Doe", "Chest tightness & Hypertension", 52, "Male", 1500, "9123456780", "BILL-1001", "patient_john"),
-                ("PAT002", "Emily Watson", "Severe Migraine & Nausea", 34, "Female", 900, "9123456781", "BILL-1002", None),
-                ("PAT003", "Aarav Kumar", "Viral Fever and Bronchitis", 9, "Male", 600, "9123456782", "BILL-1003", None),
-                ("PAT004", "Robert Taylor", "Right Knee Ligament Tear", 63, "Male", 1800, "9123456783", "BILL-1004", None),
-                ("PAT005", "Sophia Martinez", "Stage II Lymphoma Review", 47, "Female", 2500, "9123456784", "BILL-1005", None),
-                ("PAT006", "Ananya Iyer", "Chronic Eczema Flare-up", 28, "Female", 750, "9123456785", "BILL-1006", None),
-                ("PAT007", "Karan Malhotra", "Acute Appendicitis Post-op", 31, "Male", 3200, "9123456786", "BILL-1007", None),
-                ("PAT008", "Fatima Sheikh", "Chronic Sinusitis & Vertigo", 42, "Female", 800, "9123456787", "BILL-1008", None),
-                ("PAT009", "George Thomas", "Lumbar Spine MRI Follow-up", 58, "Male", 1200, "9123456788", "BILL-1009", None),
-                ("PAT010", "Neha Reddy", "Dehydration & Food Poisoning", 24, "Female", 1100, "9123456789", "BILL-1010", None),
-                ("PAT011", "Vikramaditya Bose", "Coronary Angioplasty Recovery", 65, "Male", 4500, "9123456790", "BILL-1011", None),
-                ("PAT012", "Chloe Bennett", "Pediatric Asthma Exacerbation", 6, "Female", 700, "9123456791", "BILL-1012", None),
-                ("PAT013", "Siddharth Joshi", "Shoulder Dislocation & Sprain", 37, "Male", 1400, "9123456792", "BILL-1013", None),
-                ("PAT014", "Zoya Akhtar", "Epileptic Seizure Assessment", 29, "Female", 2100, "9123456793", "BILL-1014", None),
-                ("PAT015", "Harpreet Singh", "Chemotherapy Cycle 3 Check", 53, "Male", 3800, "9123456794", "BILL-1015", None),
-                ("PAT016", "Divya Pillai", "Psoriasis Plaque Management", 33, "Female", 850, "9123456795", "BILL-1016", None),
-                ("PAT017", "Manish Verma", "Inguinal Hernia Repair Post-op", 49, "Male", 2900, "9123456796", "BILL-1017", None),
-                ("PAT018", "Tanya Grewal", "Tonsillitis & Vocal Strain", 22, "Female", 650, "9123456797", "BILL-1018", None),
-                ("PAT019", "Lucas Silva", "Cerebral CT Scan Consultation", 41, "Male", 1350, "9123456798", "BILL-1019", None),
-                ("PAT020", "Pooja Hegde", "Multiple Trauma & Fracture", 27, "Female", 5200, "9123456799", "BILL-1020", None),
+                ("PAT001", "Johnathan Doe", "Chest tightness & Hypertension", 52, "Male", 1500, "9123456780", "BILL-1001", "patient_john", "O+", "Penicillin", "Hypertension (5 yrs), Mild Arrhythmia"),
+                ("PAT002", "Emily Watson", "Severe Migraine & Nausea", 34, "Female", 900, "9123456781", "BILL-1002", None, "A+", "Sulfa drugs", "Chronic episodic migraine"),
+                ("PAT003", "Aarav Kumar", "Viral Fever and Bronchitis", 9, "Male", 600, "9123456782", "BILL-1003", None, "B+", "Peanuts", "Childhood asthma"),
+                ("PAT004", "Robert Taylor", "Right Knee Ligament Tear", 63, "Male", 1800, "9123456783", "BILL-1004", None, "AB+", "Aspirin", "Osteoarthritis, Knee arthroscopy"),
+                ("PAT005", "Sophia Martinez", "Stage II Lymphoma Review", 47, "Female", 2500, "9123456784", "BILL-1005", None, "O-", "None reported", "Lymphoma under chemotherapy"),
+                ("PAT006", "Ananya Iyer", "Chronic Eczema Flare-up", 28, "Female", 750, "9123456785", "BILL-1006", None, "A-", "Topical steroids", "Atopic dermatitis"),
+                ("PAT007", "Karan Malhotra", "Acute Appendicitis Post-op", 31, "Male", 3200, "9123456786", "BILL-1007", None, "B-", "None reported", "Emergency appendectomy 2026"),
+                ("PAT008", "Fatima Sheikh", "Chronic Sinusitis & Vertigo", 42, "Female", 800, "9123456787", "BILL-1008", None, "AB-", "Dust, Pollen", "Benign positional vertigo"),
+                ("PAT009", "George Thomas", "Lumbar Spine MRI Follow-up", 58, "Male", 1200, "9123456788", "BILL-1009", None, "O+", "Ibuprofen", "L4-L5 disc herniation"),
+                ("PAT010", "Neha Reddy", "Dehydration & Food Poisoning", 24, "Female", 1100, "9123456789", "BILL-1010", None, "B+", "Shellfish", "Acute bacterial gastroenteritis"),
+                ("PAT011", "Vikramaditya Bose", "Coronary Angioplasty Recovery", 65, "Male", 4500, "9123456790", "BILL-1011", None, "A+", "Iodine contrast", "Coronary artery disease, Stent placement"),
+                ("PAT012", "Chloe Bennett", "Pediatric Asthma Exacerbation", 6, "Female", 700, "9123456791", "BILL-1012", None, "O+", "Dairy", "Bronchial asthma"),
+                ("PAT013", "Siddharth Joshi", "Shoulder Dislocation & Sprain", 37, "Male", 1400, "9123456792", "BILL-1013", None, "B+", "Codeine", "Sports injury dislocation"),
+                ("PAT014", "Zoya Akhtar", "Epileptic Seizure Assessment", 29, "Female", 2100, "9123456793", "BILL-1014", None, "A-", "None reported", "Focal epilepsy"),
+                ("PAT015", "Harpreet Singh", "Chemotherapy Cycle 3 Check", 53, "Male", 3800, "9123456794", "BILL-1015", None, "AB+", "Latex", "Colorectal cancer treatment"),
+                ("PAT016", "Divya Pillai", "Psoriasis Plaque Management", 33, "Female", 850, "9123456795", "BILL-1016", None, "O+", "None reported", "Psoriatic arthritis"),
+                ("PAT017", "Manish Verma", "Inguinal Hernia Repair Post-op", 49, "Male", 2900, "9123456796", "BILL-1017", None, "A+", "Morphine", "Hernia mesh repair 2026"),
+                ("PAT018", "Tanya Grewal", "Tonsillitis & Vocal Strain", 22, "Female", 650, "9123456797", "BILL-1018", None, "B+", "None reported", "Recurrent pharyngitis"),
+                ("PAT019", "Lucas Silva", "Cerebral CT Scan Consultation", 41, "Male", 1350, "9123456798", "BILL-1019", None, "O-", "Contrast dye", "Post-concussion syndrome"),
+                ("PAT020", "Pooja Hegde", "Multiple Trauma & Fracture", 27, "Female", 5200, "9123456799", "BILL-1020", None, "B+", "None reported", "Motor vehicle accident recovery"),
             ],
         )
 
-    # 3. Seed Hospital Ward Beds Layout (Exact 70 Beds Matrix)
+    # 3. Seed Exact 70 Beds Matrix
     # ICU: 10, Emergency: 15, General: 30, Deluxe: 15
     cursor.execute("SELECT COUNT(*) FROM BEDS")
     if cursor.fetchone()[0] == 0:
@@ -271,11 +293,11 @@ def seed_data(conn):
             bed_id = f"ICU-{i:02d}"
             bed_num = f"Bed {i:02d}"
             if bed_id == "ICU-01":
-                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT001", "2026-09-24"))
+                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT001", "2026-10-10"))
             elif bed_id == "ICU-02":
-                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT011", "2026-09-25"))
+                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT011", "2026-10-11"))
             elif bed_id == "ICU-04":
-                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT020", "2026-09-26"))
+                bed_records.append((bed_id, "ICU Ward", bed_num, "Occupied", "PAT020", "2026-10-12"))
             elif bed_id == "ICU-10":
                 bed_records.append((bed_id, "ICU Ward", bed_num, "Maintenance", None, None))
             else:
@@ -286,9 +308,9 @@ def seed_data(conn):
             bed_id = f"EMG-{i:02d}"
             bed_num = f"Bed {i:02d}"
             if bed_id == "EMG-01":
-                bed_records.append((bed_id, "Emergency Care", bed_num, "Occupied", "PAT010", "2026-09-26"))
+                bed_records.append((bed_id, "Emergency Care", bed_num, "Occupied", "PAT010", "2026-10-12"))
             elif bed_id == "EMG-03":
-                bed_records.append((bed_id, "Emergency Care", bed_num, "Occupied", "PAT007", "2026-09-25"))
+                bed_records.append((bed_id, "Emergency Care", bed_num, "Occupied", "PAT007", "2026-10-11"))
             elif bed_id == "EMG-15":
                 bed_records.append((bed_id, "Emergency Care", bed_num, "Maintenance", None, None))
             else:
@@ -299,11 +321,11 @@ def seed_data(conn):
             bed_id = f"GEN-{i:02d}"
             bed_num = f"Bed {i:02d}"
             if bed_id == "GEN-01":
-                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT003", "2026-09-25"))
+                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT003", "2026-10-10"))
             elif bed_id == "GEN-03":
-                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT012", "2026-09-26"))
+                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT012", "2026-10-11"))
             elif bed_id == "GEN-05":
-                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT017", "2026-09-24"))
+                bed_records.append((bed_id, "General Ward", bed_num, "Occupied", "PAT017", "2026-10-11"))
             elif bed_id == "GEN-30":
                 bed_records.append((bed_id, "General Ward", bed_num, "Maintenance", None, None))
             else:
@@ -314,9 +336,9 @@ def seed_data(conn):
             bed_id = f"DLX-{i:02d}"
             bed_num = f"Suite {100 + i}"
             if bed_id == "DLX-01":
-                bed_records.append((bed_id, "Deluxe Suite", bed_num, "Occupied", "PAT004", "2026-09-23"))
+                bed_records.append((bed_id, "Deluxe Suite", bed_num, "Occupied", "PAT004", "2026-10-09"))
             elif bed_id == "DLX-02":
-                bed_records.append((bed_id, "Deluxe Suite", bed_num, "Occupied", "PAT015", "2026-09-25"))
+                bed_records.append((bed_id, "Deluxe Suite", bed_num, "Occupied", "PAT015", "2026-10-11"))
             else:
                 bed_records.append((bed_id, "Deluxe Suite", bed_num, "Available", None, None))
 
@@ -366,17 +388,29 @@ def seed_data(conn):
             ],
         )
 
-    # 6. Seed Consultations & Prescriptions
+    # 6. Seed Sample Medicine Purchase History
+    cursor.execute("SELECT COUNT(*) FROM MEDICINE_PURCHASES")
+    if cursor.fetchone()[0] == 0:
+        cursor.executemany(
+            "INSERT INTO MEDICINE_PURCHASES (PURCHASE_ID, PATIENT_ID, PATIENT_NAME, MEDICINE_NAME, QUANTITY, TOTAL_PRICE, PURCHASE_DATE, USERNAME) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("ORD-1001", "PAT001", "Johnathan Doe", "Paracetamol 650mg", 2, 60.0, "2026-10-10", "patient_john"),
+                ("ORD-1002", "PAT001", "Johnathan Doe", "Atorvastatin 10mg", 1, 210.0, "2026-10-11", "patient_john"),
+                ("ORD-1003", "PAT003", "Aarav Kumar", "Amoxicillin 500mg", 1, 120.0, "2026-10-11", None),
+            ],
+        )
+
+    # 7. Seed Consultations & Prescriptions
     cursor.execute("SELECT COUNT(*) FROM CONSULTATION")
     if cursor.fetchone()[0] == 0:
         cursor.executemany(
             "INSERT INTO CONSULTATION (CONSULTATION_ID, PATIENT_ID, EMP_ID, REASON, FEES, TIME, STATUS) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
-                ("CON-001", "PAT001", "EMP001", "Cardiac ECG & Blood Pressure Check", 1500, "2026-09-25 10:30", "Completed"),
-                ("CON-002", "PAT002", "EMP004", "Neurology consultation for chronic migraine", 900, "2026-09-26 11:15", "Completed"),
-                ("CON-003", "PAT003", "EMP002", "Pediatric chest auscultation and fever check", 600, "2026-09-26 14:00", "Scheduled"),
-                ("CON-004", "PAT004", "EMP003", "Orthopedic knee ligament MRI assessment", 1800, "2026-09-26 15:30", "Scheduled"),
-                ("CON-005", "PAT007", "EMP007", "Post-appendectomy wound review", 1200, "2026-09-26 16:45", "Scheduled"),
+                ("CON-001", "PAT001", "EMP001", "Cardiac ECG & Blood Pressure Check", 1500, "2026-10-10 10:30", "Completed"),
+                ("CON-002", "PAT002", "EMP004", "Neurology consultation for chronic migraine", 900, "2026-10-11 11:15", "Completed"),
+                ("CON-003", "PAT003", "EMP002", "Pediatric chest auscultation and fever check", 600, "2026-10-12 14:00", "Scheduled"),
+                ("CON-004", "PAT004", "EMP003", "Orthopedic knee ligament MRI assessment", 1800, "2026-10-13 15:30", "Scheduled"),
+                ("CON-005", "PAT007", "EMP007", "Post-appendectomy wound review", 1200, "2026-10-13 16:45", "Scheduled"),
             ],
         )
         cursor.executemany(
@@ -385,14 +419,14 @@ def seed_data(conn):
                 (
                     "RX-001",
                     "CON-001",
-                    "2026-09-25",
+                    "2026-10-10",
                     "Stage 1 Essential Hypertension & Arrhythmia",
                     "Low sodium Mediterranean diet, 30 min daily brisk walk, monitor BP weekly.",
                 ),
                 (
                     "RX-002",
                     "CON-002",
-                    "2026-09-26",
+                    "2026-10-11",
                     "Chronic Migraine with Visual Aura",
                     "Avoid prolonged screen strain, stay well hydrated, maintain regular sleep hours.",
                 ),
@@ -408,7 +442,7 @@ def seed_data(conn):
             ],
         )
 
-    # 7. Seed Initial Notifications
+    # 8. Seed Initial Notifications
     cursor.execute("SELECT COUNT(*) FROM NOTIFICATIONS")
     if cursor.fetchone()[0] == 0:
         cursor.executemany(
@@ -425,4 +459,4 @@ def seed_data(conn):
 
 if __name__ == "__main__":
     init_db()
-    print("Database initialized and seeded with 70 Ward Beds, 10 Doctors, 20 Patients, and Notifications.")
+    print("Database initialized successfully with Extended Health Data and Purchase History.")
