@@ -50,7 +50,7 @@ def static_proxy(path):
     return send_from_directory("static", "index.html")
 
 
-# ================= AUTHENTICATION (EXPLICIT MESSAGES) =================
+# ================= AUTHENTICATION (EXPLICIT ERROR PROMPTS) =================
 
 @app.route("/api/auth/register", methods=["POST"])
 def register():
@@ -90,7 +90,10 @@ def register():
         pid = f"PAT{count:03d}"
         bill_no = f"BILL-{1000 + count}"
         cursor.execute(
-            "INSERT INTO PATIENTS (PID, NAME, ISSUE, AGE, GENDER, FEES, MOBILE_NO, BILL_NO, USERNAME) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            """INSERT INTO PATIENTS (
+                PID, NAME, ISSUE, AGE, GENDER, FEES, MOBILE_NO, BILL_NO, USERNAME,
+                BLOOD_GROUP, ALLERGIES, MEDICAL_HISTORY
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unknown', 'None reported', 'No prior chronic conditions')""",
             (pid, name or username.capitalize(), "Registered Online Patient", 30, "Not Specified", 0.0, mobile, bill_no, username),
         )
 
@@ -190,7 +193,7 @@ def logout():
     return jsonify({"message": "Logged out successfully"})
 
 
-# ================= DASHBOARD METRICS =================
+# ================= DASHBOARD METRICS (ROLE-BASED APPOINTMENT COUNTS) =================
 
 @app.route("/api/dashboard/stats", methods=["GET"])
 @login_required
@@ -210,14 +213,26 @@ def get_stats():
     cursor.execute("SELECT COUNT(*) FROM PHARMACY WHERE STOCK < 50")
     low_stock_medicines = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM CONSULTATION WHERE STATUS = 'Scheduled'")
-    scheduled_consultations = cursor.fetchone()[0]
-
     cursor.execute("SELECT COUNT(*) FROM BEDS WHERE STATUS = 'Available'")
     available_beds = cursor.fetchone()[0]
 
     cursor.execute("SELECT COUNT(*) FROM BEDS WHERE STATUS = 'Occupied'")
     occupied_beds = cursor.fetchone()[0]
+
+    # Appointments Count: Hospital-wide for Staff vs. Patient's own for Patient
+    user_role = session.get("role")
+    if user_role == "patient":
+        cursor.execute(
+            """SELECT COUNT(*) FROM CONSULTATION C
+               JOIN PATIENTS P ON C.PATIENT_ID = P.PID
+               WHERE (P.USERNAME = ? OR P.MOBILE_NO = (SELECT MOBILE_NO FROM USER_DATA WHERE USERNAME = ?))
+               AND C.STATUS = 'Scheduled'""",
+            (session["user"], session["user"]),
+        )
+        scheduled_consultations = cursor.fetchone()[0]
+    else:
+        cursor.execute("SELECT COUNT(*) FROM CONSULTATION WHERE STATUS = 'Scheduled'")
+        scheduled_consultations = cursor.fetchone()[0]
 
     conn.close()
 
@@ -229,11 +244,11 @@ def get_stats():
         "scheduled_consultations": scheduled_consultations,
         "available_beds": available_beds,
         "occupied_beds": occupied_beds,
-        "current_user_role": session.get("role")
+        "current_user_role": user_role
     })
 
 
-# ================= HOSPITAL WARD BEDS & PATIENT BOOKING =================
+# ================= HOSPITAL WARD BEDS (STRICT 1-BED LIMIT & ADMIN CONTROLS) =================
 
 @app.route("/api/beds", methods=["GET"])
 @login_required
@@ -244,7 +259,7 @@ def get_beds():
         """
         SELECT B.BED_ID, B.WARD_TYPE, B.BED_NUMBER, B.STATUS, B.PATIENT_ID, B.ASSIGNED_DATE,
                P.NAME AS PATIENT_NAME, P.AGE AS PATIENT_AGE, P.GENDER AS PATIENT_GENDER,
-               P.ISSUE AS PATIENT_ISSUE, P.BILL_NO, P.MOBILE_NO
+               P.ISSUE AS PATIENT_ISSUE, P.BILL_NO, P.MOBILE_NO, P.BLOOD_GROUP, P.ALLERGIES
         FROM BEDS B
         LEFT JOIN PATIENTS P ON B.PATIENT_ID = P.PID
         ORDER BY B.WARD_TYPE ASC, B.BED_ID ASC
@@ -255,7 +270,7 @@ def get_beds():
     return jsonify(rows)
 
 
-# Patient Direct Bed Booking
+# Patient Direct Bed Booking (Enforces 1 Bed per Patient Rule)
 @app.route("/api/beds/book", methods=["POST"])
 @login_required
 def book_bed():
@@ -269,36 +284,41 @@ def book_bed():
     conn = get_db()
     cursor = conn.cursor()
 
-    # Get the patient profile of the logged in user
-    cursor.execute("SELECT PID, NAME FROM PATIENTS WHERE USERNAME = ?", (session["user"],))
+    # Retrieve patient record linked to current user
+    cursor.execute("SELECT PID, NAME FROM PATIENTS WHERE USERNAME = ? OR MOBILE_NO = (SELECT MOBILE_NO FROM USER_DATA WHERE USERNAME = ?)", (session["user"], session["user"]))
     patient = cursor.fetchone()
     if not patient:
         conn.close()
-        return jsonify({"error": "No patient profile found for this account. Please register your patient details first."}), 400
+        return jsonify({"error": "No patient record found for your account. Please complete your health profile."}), 400
 
     patient_id = patient["PID"]
     patient_name = patient["NAME"]
 
-    # Verify bed availability
+    # Check: Does the patient already have an active bed reserved?
+    cursor.execute("SELECT BED_ID, WARD_TYPE, BED_NUMBER FROM BEDS WHERE PATIENT_ID = ? AND STATUS = 'Occupied'", (patient_id,))
+    existing_bed = cursor.fetchone()
+    if existing_bed:
+        conn.close()
+        return jsonify({
+            "error": f"You already have an active bed reserved (Bed {existing_bed['BED_NUMBER']} in {existing_bed['WARD_TYPE']}). You can only book one bed at a time until you are recovered and discharged."
+        }), 400
+
+    # Verify target bed is available
     cursor.execute("SELECT STATUS, WARD_TYPE, BED_NUMBER FROM BEDS WHERE BED_ID = ?", (bed_id,))
     bed = cursor.fetchone()
     if not bed:
         conn.close()
-        return jsonify({"error": "Bed not found"}), 404
+        return jsonify({"error": "Selected bed does not exist"}), 404
     if bed["STATUS"] != "Available":
         conn.close()
-        return jsonify({"error": f"Bed {bed_id} is currently {bed['STATUS'].lower()} and cannot be booked."}), 409
+        return jsonify({"error": f"Bed {bed['BED_NUMBER']} is currently {bed['STATUS'].lower()} and cannot be reserved."}), 409
 
-    # Free up any previously booked bed by this patient
-    cursor.execute("UPDATE BEDS SET STATUS = 'Available', PATIENT_ID = NULL, ASSIGNED_DATE = NULL WHERE PATIENT_ID = ?", (patient_id,))
-
-    # Allocate bed
+    # Book the bed
     cursor.execute(
         "UPDATE BEDS SET STATUS = 'Occupied', PATIENT_ID = ?, ASSIGNED_DATE = ? WHERE BED_ID = ?",
         (patient_id, assigned_date, bed_id),
     )
 
-    # Log notification for Admin & Staff
     alert_msg = f"Patient {patient_name} reserved Bed {bed['BED_NUMBER']} in {bed['WARD_TYPE']}."
     cursor.execute("INSERT INTO NOTIFICATIONS (TYPE, MESSAGE) VALUES ('bed', ?)", (alert_msg,))
 
@@ -307,7 +327,7 @@ def book_bed():
     return jsonify({"message": f"Successfully reserved Bed {bed['BED_NUMBER']} ({bed['WARD_TYPE']})!"})
 
 
-# Staff Bed Allocation
+# Staff: Allocate or Reassign Bed
 @app.route("/api/beds/assign", methods=["POST"])
 @staff_required
 def assign_bed():
@@ -328,7 +348,9 @@ def assign_bed():
         conn.close()
         return jsonify({"error": f"Patient with ID {patient_id} does not exist"}), 404
 
+    # Remove any existing bed occupation for this patient to maintain 1-bed policy
     cursor.execute("UPDATE BEDS SET STATUS = 'Available', PATIENT_ID = NULL, ASSIGNED_DATE = NULL WHERE PATIENT_ID = ?", (patient_id,))
+
     cursor.execute(
         "UPDATE BEDS SET STATUS = 'Occupied', PATIENT_ID = ?, ASSIGNED_DATE = ? WHERE BED_ID = ?",
         (patient_id, assigned_date, bed_id),
@@ -342,7 +364,7 @@ def assign_bed():
     return jsonify({"message": f"Bed {bed_id} successfully allocated to {patient['NAME']}"})
 
 
-# Staff Bed Vacate
+# Staff: Discharge Bed / Remove Reservation
 @app.route("/api/beds/vacate", methods=["POST"])
 @staff_required
 def vacate_bed():
@@ -363,7 +385,27 @@ def vacate_bed():
     return jsonify({"message": f"Bed {bed_id} discharged and marked Available"})
 
 
-# ================= PHARMACY & PATIENT MEDICINE PURCHASE =================
+# Staff: Toggle Bed Maintenance / Available Status
+@app.route("/api/beds/<bed_id>/status", methods=["PATCH"])
+@staff_required
+def set_bed_status(bed_id):
+    data = request.get_json() or {}
+    new_status = data.get("STATUS")
+    if new_status not in ["Available", "Maintenance"]:
+        return jsonify({"error": "Status can only be set to Available or Maintenance"}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE BEDS SET STATUS = ?, PATIENT_ID = NULL, ASSIGNED_DATE = NULL WHERE BED_ID = ?",
+        (new_status, bed_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Bed {bed_id} status updated to {new_status}"})
+
+
+# ================= PHARMACY & PURCHASE HISTORY =================
 
 @app.route("/api/pharmacy", methods=["GET"])
 @login_required
@@ -376,7 +418,7 @@ def get_pharmacy():
     return jsonify(rows)
 
 
-# Patient Medicine Purchase with Stock Validation & Alerts
+# Patient Medicine Purchase
 @app.route("/api/pharmacy/buy", methods=["POST"])
 @login_required
 def buy_medicine():
@@ -394,22 +436,41 @@ def buy_medicine():
     med = cursor.fetchone()
     if not med:
         conn.close()
-        return jsonify({"error": f"Medicine '{medicine_name}' is not in the pharmacy catalog."}), 404
+        return jsonify({"error": f"Medicine '{medicine_name}' not found."}), 404
 
-    # Validate stock limits
+    # Stock limit validation
     if quantity > med["STOCK"]:
         conn.close()
         return jsonify({
             "error": f"Requested quantity ({quantity} units) exceeds available stock ({med['STOCK']} units)."
         }), 400
 
+    # Retrieve patient information
+    cursor.execute("SELECT PID, NAME FROM PATIENTS WHERE USERNAME = ? OR MOBILE_NO = (SELECT MOBILE_NO FROM USER_DATA WHERE USERNAME = ?)", (session["user"], session["user"]))
+    p_row = cursor.fetchone()
+    patient_id = p_row["PID"] if p_row else "PAT-WALKIN"
+    patient_name = p_row["NAME"] if p_row else session.get("name", "Online Patient")
+
     total_price = med["PRICE"] * quantity
     new_stock = med["STOCK"] - quantity
+    purchase_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    cursor.execute("SELECT COUNT(*) FROM MEDICINE_PURCHASES")
+    order_num = cursor.fetchone()[0] + 1001
+    purchase_id = f"ORD-{order_num}"
+
+    # Decrement Pharmacy Stock
     cursor.execute("UPDATE PHARMACY SET STOCK = ? WHERE MEDICINE_NAME = ?", (new_stock, medicine_name))
 
-    # Log purchase notification for Admin
-    user_name = session.get("name") or session.get("user")
-    alert_msg = f"Order: Patient {user_name} purchased {quantity} unit(s) of {medicine_name} (Total: ₹{total_price:.2f})."
+    # Record in Medicine Purchase History
+    cursor.execute(
+        """INSERT INTO MEDICINE_PURCHASES (
+            PURCHASE_ID, PATIENT_ID, PATIENT_NAME, MEDICINE_NAME, QUANTITY, TOTAL_PRICE, PURCHASE_DATE, USERNAME
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (purchase_id, patient_id, patient_name, medicine_name, quantity, total_price, purchase_date, session["user"]),
+    )
+
+    alert_msg = f"Order: Patient {patient_name} purchased {quantity} unit(s) of {medicine_name} (Total: ₹{total_price:.2f})."
     cursor.execute("INSERT INTO NOTIFICATIONS (TYPE, MESSAGE) VALUES ('pharmacy', ?)", (alert_msg,))
 
     conn.commit()
@@ -417,9 +478,32 @@ def buy_medicine():
 
     return jsonify({
         "message": f"Successfully purchased {quantity} unit(s) of {medicine_name} for ₹{total_price:.2f}!",
+        "order_id": purchase_id,
         "total_price": total_price,
         "remaining_stock": new_stock
     })
+
+
+# Get Medicine Purchase History (Patient sees their own; Staff sees all)
+@app.route("/api/pharmacy/purchases", methods=["GET"])
+@login_required
+def get_purchase_history():
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if session.get("role") == "patient":
+        cursor.execute(
+            """SELECT * FROM MEDICINE_PURCHASES 
+               WHERE USERNAME = ? OR PATIENT_ID = (SELECT PID FROM PATIENTS WHERE USERNAME = ?)
+               ORDER BY PURCHASE_DATE DESC""",
+            (session["user"], session["user"]),
+        )
+    else:
+        cursor.execute("SELECT * FROM MEDICINE_PURCHASES ORDER BY PURCHASE_DATE DESC")
+
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify(rows)
 
 
 @app.route("/api/pharmacy", methods=["POST"])
@@ -468,17 +552,64 @@ def update_stock(medicine_name):
     return jsonify({"message": f"Updated {medicine_name}"})
 
 
-# ================= NOTIFICATIONS (ADMIN ACTIVITY FEED) =================
+# ================= PATIENT PROFILE & MEDICAL DETAILS (VIEW & UPDATE) =================
 
-@app.route("/api/notifications", methods=["GET"])
-@staff_required
-def get_notifications():
+@app.route("/api/patient/profile", methods=["GET"])
+@login_required
+def get_patient_profile():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM NOTIFICATIONS ORDER BY ID DESC LIMIT 20")
-    rows = [dict(r) for r in cursor.fetchall()]
+    cursor.execute(
+        """SELECT P.*, B.BED_NUMBER, B.WARD_TYPE
+           FROM PATIENTS P
+           LEFT JOIN BEDS B ON P.PID = B.PATIENT_ID AND B.STATUS = 'Occupied'
+           WHERE P.USERNAME = ? OR P.MOBILE_NO = (SELECT MOBILE_NO FROM USER_DATA WHERE USERNAME = ?)""",
+        (session["user"], session["user"]),
+    )
+    profile = cursor.fetchone()
     conn.close()
-    return jsonify(rows)
+
+    if not profile:
+        return jsonify({"error": "Patient profile not found"}), 404
+    return jsonify(dict(profile))
+
+
+@app.route("/api/patient/profile", methods=["PUT"])
+@login_required
+def update_patient_profile():
+    data = request.get_json() or {}
+    name = (data.get("NAME") or "").strip()
+    age = data.get("AGE")
+    gender = data.get("GENDER")
+    mobile = (data.get("MOBILE_NO") or "").strip()
+    issue = (data.get("ISSUE") or "").strip()
+    blood_group = (data.get("BLOOD_GROUP") or "Unknown").strip()
+    allergies = (data.get("ALLERGIES") or "None reported").strip()
+    med_history = (data.get("MEDICAL_HISTORY") or "No prior chronic conditions").strip()
+
+    if not name:
+        return jsonify({"error": "Name is required"}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Update patient clinical record
+    cursor.execute(
+        """UPDATE PATIENTS
+           SET NAME = ?, AGE = ?, GENDER = ?, MOBILE_NO = ?, ISSUE = ?,
+               BLOOD_GROUP = ?, ALLERGIES = ?, MEDICAL_HISTORY = ?
+           WHERE USERNAME = ? OR MOBILE_NO = (SELECT MOBILE_NO FROM USER_DATA WHERE USERNAME = ?)""",
+        (name, age, gender, mobile, issue, blood_group, allergies, med_history, session["user"], session["user"]),
+    )
+
+    # Sync User Account Name and Contact
+    cursor.execute("UPDATE USER_DATA SET NAME = ?, MOBILE_NO = ? WHERE USERNAME = ?", (name, mobile, session["user"]))
+    session["name"] = name
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Personal and medical details successfully updated!"})
 
 
 # ================= EMPLOYEES (DOCTORS & STAFF) =================
@@ -519,7 +650,7 @@ def add_employee():
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({"error": f"Doctor/Employee ID {eid} already exists"}), 409
+        return jsonify({"error": f"Doctor ID {eid} already exists"}), 409
 
     conn.close()
     return jsonify({"message": f"Doctor {name} added successfully", "EID": eid}), 201
@@ -533,7 +664,7 @@ def delete_employee(eid):
     cursor.execute("SELECT COUNT(*) FROM CONSULTATION WHERE EMP_ID = ?", (eid,))
     if cursor.fetchone()[0] > 0:
         conn.close()
-        return jsonify({"error": "Cannot delete doctor with existing consultation history"}), 400
+        return jsonify({"error": "Cannot delete doctor with active consultations"}), 400
 
     cursor.execute("DELETE FROM EMPLOYEES WHERE EID = ?", (eid,))
     conn.commit()
@@ -541,7 +672,7 @@ def delete_employee(eid):
     return jsonify({"message": f"Doctor/Staff {eid} removed successfully"})
 
 
-# ================= PATIENTS =================
+# ================= PATIENTS (DOCTOR / STAFF VIEW) =================
 
 @app.route("/api/patients", methods=["GET"])
 @login_required
@@ -555,7 +686,12 @@ def get_patients():
             (session["user"], session["user"]),
         )
     else:
-        cursor.execute("SELECT * FROM PATIENTS ORDER BY PID ASC")
+        cursor.execute(
+            """SELECT P.*, B.BED_NUMBER, B.WARD_TYPE
+               FROM PATIENTS P
+               LEFT JOIN BEDS B ON P.PID = B.PATIENT_ID AND B.STATUS = 'Occupied'
+               ORDER BY P.PID ASC"""
+        )
 
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
@@ -579,6 +715,9 @@ def add_patient():
     gender = data.get("GENDER", "Not Specified")
     fees = data.get("FEES", 0.0)
     mobile = data.get("MOBILE_NO", "").strip()
+    blood_group = data.get("BLOOD_GROUP", "Unknown")
+    allergies = data.get("ALLERGIES", "None reported")
+    med_history = data.get("MEDICAL_HISTORY", "No prior chronic conditions")
     username = data.get("USERNAME")
 
     if not name:
@@ -587,13 +726,16 @@ def add_patient():
 
     try:
         cursor.execute(
-            "INSERT INTO PATIENTS (PID, NAME, ISSUE, AGE, GENDER, FEES, MOBILE_NO, BILL_NO, USERNAME) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (pid, name, issue, age, gender, fees, mobile, bill_no, username),
+            """INSERT INTO PATIENTS (
+                PID, NAME, ISSUE, AGE, GENDER, FEES, MOBILE_NO, BILL_NO, USERNAME,
+                BLOOD_GROUP, ALLERGIES, MEDICAL_HISTORY
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (pid, name, issue, age, gender, fees, mobile, bill_no, username, blood_group, allergies, med_history),
         )
         conn.commit()
     except sqlite3.IntegrityError as e:
         conn.close()
-        return jsonify({"error": "Patient ID or Bill No duplicate error: " + str(e)}), 409
+        return jsonify({"error": "Duplicate patient identifier: " + str(e)}), 409
 
     conn.close()
     return jsonify({"message": f"Patient record created with ID {pid}", "PID": pid}), 201
@@ -607,15 +749,16 @@ def delete_patient(pid):
     cursor.execute("SELECT COUNT(*) FROM CONSULTATION WHERE PATIENT_ID = ?", (pid,))
     if cursor.fetchone()[0] > 0:
         conn.close()
-        return jsonify({"error": "Cannot delete patient who has active consultation history."}), 400
+        return jsonify({"error": "Cannot delete patient with active consultation history."}), 400
 
     cursor.execute("DELETE FROM PATIENTS WHERE PID = ?", (pid,))
+    cursor.execute("UPDATE BEDS SET STATUS = 'Available', PATIENT_ID = NULL, ASSIGNED_DATE = NULL WHERE PATIENT_ID = ?", (pid,))
     conn.commit()
     conn.close()
     return jsonify({"message": f"Patient {pid} deleted successfully"})
 
 
-# ================= EMERGENCY MEDICAL TRANSPORT (AMBULANCE) =================
+# ================= EMERGENCY AMBULANCE TRANSPORT =================
 
 @app.route("/api/emt", methods=["GET"])
 @login_required
@@ -656,7 +799,7 @@ def add_emt():
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
-        return jsonify({"error": f"Ambulance {vno} is already registered"}), 409
+        return jsonify({"error": f"Ambulance {vno} already registered"}), 409
 
     conn.close()
     return jsonify({"message": f"Ambulance {vno} added successfully"}), 201
@@ -743,7 +886,7 @@ def book_consultation():
     cursor = conn.cursor()
 
     if session.get("role") == "patient":
-        cursor.execute("SELECT PID FROM PATIENTS WHERE USERNAME = ?", (session["user"],))
+        cursor.execute("SELECT PID FROM PATIENTS WHERE USERNAME = ? OR MOBILE_NO = (SELECT MOBILE_NO FROM USER_DATA WHERE USERNAME = ?)", (session["user"], session["user"]))
         p_row = cursor.fetchone()
         if p_row:
             patient_id = p_row["PID"]
@@ -767,7 +910,7 @@ def book_consultation():
     return jsonify({"message": "Consultation scheduled successfully", "CONSULTATION_ID": cid}), 201
 
 
-# ================= DIGITAL PRESCRIPTIONS & DOWNLOAD =================
+# ================= DIGITAL PRESCRIPTIONS =================
 
 @app.route("/api/prescriptions", methods=["GET"])
 @login_required
@@ -884,7 +1027,18 @@ def create_prescription():
     return jsonify({"message": "Digital Prescription created successfully", "PRESCRIPTION_ID": pres_id}), 201
 
 
-# ================= DATABASE RESET (ADMIN) =================
+# ================= NOTIFICATIONS & DATABASE RESET =================
+
+@app.route("/api/notifications", methods=["GET"])
+@staff_required
+def get_notifications():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM NOTIFICATIONS ORDER BY ID DESC LIMIT 20")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
 
 @app.route("/api/admin/reset", methods=["POST"])
 @staff_required
@@ -896,6 +1050,7 @@ def reset_database():
         "PRESCRIBED_MEDICINE",
         "PRESCRIPTION",
         "CONSULTATION",
+        "MEDICINE_PURCHASES",
         "BEDS",
         "EMT_STATUS",
         "EMT",
@@ -909,7 +1064,7 @@ def reset_database():
     conn.commit()
     conn.close()
     init_db()
-    return jsonify({"message": "Database reset and seeded with fresh demo doctors, patients, and ward beds!"})
+    return jsonify({"message": "Database reset and seeded with fresh demo doctors, patients, 70 ward beds, and purchase records!"})
 
 
 if __name__ == "__main__":
